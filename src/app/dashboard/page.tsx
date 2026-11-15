@@ -1,146 +1,298 @@
 import Link from "next/link";
 import { Icon } from "@iconify/react";
+import { requireUserPage } from "@/server/authz";
+import { SiteHeader } from "@/components/ui/SiteHeader";
+import type { VerificationStatus } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
-const ROLES = [
-  {
-    href: "/dashboard/customer",
-    icon: "ph:user",
-    label: "Customer",
-    desc: "View trips, bookings, and verification.",
-  },
-  {
-    href: "/dashboard/owner",
-    icon: "ph:car",
-    label: "Owner",
-    desc: "Manage listings, earnings, and requests.",
-  },
-  {
-    href: "/dashboard/admin",
-    icon: "ph:shield-star",
-    label: "Admin",
-    desc: "Verifications, approvals, and disputes.",
-  },
-];
+// Map verification status values to design-token colours
+const STATUS_COLOR: Record<VerificationStatus, string> = {
+  Unverified: "var(--slate)",
+  Pending: "var(--wait)",
+  Verified: "var(--ok)",
+  Rejected: "var(--alert)",
+};
 
-export default function DashboardPage() {
+function StatusTag({ status }: { status: VerificationStatus }) {
+  const color = STATUS_COLOR[status];
   return (
-    <div
+    <span
+      className="tag"
       style={{
-        minHeight: "100vh",
-        background: "var(--paper)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "40px 24px",
-        textAlign: "center",
+        color,
+        border: `1px solid ${color}`,
+        padding: "2px 8px",
+        marginLeft: 8,
       }}
     >
-      {/* Logo */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          fontFamily: "var(--font-display)",
-          fontSize: 18,
-          fontWeight: 700,
-          letterSpacing: "-0.025em",
-          color: "var(--ink)",
-          marginBottom: 48,
-        }}
-      >
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-          <rect x="1" y="1" width="20" height="20" stroke="currentColor" strokeWidth="1.5"/>
-          <circle cx="11" cy="11" r="3" fill="currentColor"/>
-          <line x1="11" y1="1" x2="11" y2="8" stroke="currentColor" strokeWidth="1.5"/>
-        </svg>
-        Waypoint
-      </div>
+      <span className="dot" style={{ background: color }} />
+      {status}
+    </span>
+  );
+}
 
-      <h1
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 28,
-          fontWeight: 700,
-          letterSpacing: "-0.025em",
-          color: "var(--ink)",
-          marginBottom: 12,
-        }}
-      >
-        Choose your dashboard
-      </h1>
+export default async function DashboardPage() {
+  const actor = await requireUserPage();
+  const { user, renter, rentee, admin } = actor;
 
-      <p
-        style={{
-          fontSize: 15,
-          color: "var(--slate)",
-          lineHeight: 1.6,
-          maxWidth: 380,
-          marginBottom: 36,
-        }}
-      >
-        Select the view you&apos;d like to open. You can switch between roles anytime.
-      </p>
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
+      <SiteHeader />
 
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(200px,100%), 1fr))",
-          gap: 16,
-          width: "100%",
-          maxWidth: 540,
-          marginBottom: 24,
+          maxWidth: 600,
+          margin: "0 auto",
+          padding: "48px 24px",
         }}
       >
-        {ROLES.map((r) => (
-          <Link
-            key={r.href}
-            href={r.href}
-            className="card-hover"
+        {/* User greeting */}
+        <div style={{ marginBottom: 36 }}>
+          <h1
             style={{
-              padding: "24px 20px",
-              flexDirection: "column",
-              alignItems: "flex-start",
-              gap: 10,
+              fontFamily: "var(--font-display)",
+              fontSize: 28,
+              fontWeight: 700,
+              letterSpacing: "-0.025em",
+              color: "var(--ink)",
+              marginBottom: 6,
             }}
           >
-            <Icon icon={r.icon} width={24} style={{ color: "var(--ink)" }} aria-hidden="true" />
-            <div>
-              <div
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: "var(--ink)",
-                  marginBottom: 4,
-                }}
-              >
-                {r.label}
-              </div>
-              <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
-                {r.desc}
-              </div>
-            </div>
-            <Icon icon="ph:arrow-right" width={14} style={{ color: "var(--slate)", marginTop: "auto" }} aria-hidden="true" />
-          </Link>
-        ))}
-      </div>
+            {user.name || "Dashboard"}
+          </h1>
+          <p
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              letterSpacing: "0.08em",
+              color: "var(--slate)",
+            }}
+          >
+            {user.email}
+          </p>
+        </div>
 
-      <Link
-        href="/"
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          color: "var(--slate)",
-          letterSpacing: "0.07em",
-          textDecoration: "none",
-        }}
-      >
-        ← Back to browse
-      </Link>
+        {/* Profile cards */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(240px,100%), 1fr))",
+            gap: 16,
+          }}
+        >
+          {/* Owner card */}
+          {renter ? (
+            <Link
+              href="/dashboard/owner"
+              className="card-hover"
+              style={{
+                padding: "24px 20px",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <Icon icon="ph:car" width={24} style={{ color: "var(--ink)" }} aria-hidden="true" />
+              <div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                    marginBottom: 4,
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  Owner
+                  <StatusTag status={renter.verificationStatus} />
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
+                  Manage listings, earnings, and requests.
+                </div>
+              </div>
+              <Icon
+                icon="ph:arrow-right"
+                width={14}
+                style={{ color: "var(--slate)", marginTop: "auto" }}
+                aria-hidden="true"
+              />
+            </Link>
+          ) : (
+            <Link
+              href="/dashboard/owner/new"
+              className="card-hover"
+              style={{
+                padding: "24px 20px",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <Icon icon="ph:car" width={24} style={{ color: "var(--slate)" }} aria-hidden="true" />
+              <div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Become an Owner
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
+                  List your car and start earning.
+                </div>
+              </div>
+              <Icon
+                icon="ph:plus"
+                width={14}
+                style={{ color: "var(--accent)", marginTop: "auto" }}
+                aria-hidden="true"
+              />
+            </Link>
+          )}
+
+          {/* Customer card */}
+          {rentee ? (
+            <Link
+              href="/dashboard/customer"
+              className="card-hover"
+              style={{
+                padding: "24px 20px",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <Icon icon="ph:user" width={24} style={{ color: "var(--ink)" }} aria-hidden="true" />
+              <div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                    marginBottom: 4,
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  Customer
+                  <StatusTag status={rentee.verificationStatus} />
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
+                  View trips, bookings, and verification.
+                </div>
+              </div>
+              <Icon
+                icon="ph:arrow-right"
+                width={14}
+                style={{ color: "var(--slate)", marginTop: "auto" }}
+                aria-hidden="true"
+              />
+            </Link>
+          ) : (
+            <Link
+              href="/dashboard/customer/new"
+              className="card-hover"
+              style={{
+                padding: "24px 20px",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <Icon icon="ph:user" width={24} style={{ color: "var(--slate)" }} aria-hidden="true" />
+              <div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Create Customer profile
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
+                  Rent vehicles and track your trips.
+                </div>
+              </div>
+              <Icon
+                icon="ph:plus"
+                width={14}
+                style={{ color: "var(--accent)", marginTop: "auto" }}
+                aria-hidden="true"
+              />
+            </Link>
+          )}
+
+          {/* Admin card — only shown when the user has an admin profile */}
+          {admin && (
+            <Link
+              href="/dashboard/admin"
+              className="card-hover"
+              style={{
+                padding: "24px 20px",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <Icon
+                icon="ph:shield-star"
+                width={24}
+                style={{ color: "var(--ink)" }}
+                aria-hidden="true"
+              />
+              <div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Admin
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
+                  Verifications, approvals, and disputes.
+                </div>
+              </div>
+              <Icon
+                icon="ph:arrow-right"
+                width={14}
+                style={{ color: "var(--slate)", marginTop: "auto" }}
+                aria-hidden="true"
+              />
+            </Link>
+          )}
+        </div>
+
+        {/* Back link */}
+        <div style={{ marginTop: 36 }}>
+          <Link
+            href="/"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--slate)",
+              letterSpacing: "0.07em",
+              textDecoration: "none",
+            }}
+          >
+            ← Back to browse
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Icon } from "@iconify/react";
 import { motion, AnimatePresence } from "framer-motion";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 
 interface HeaderProps {
   variant?: "paper" | "ink";
@@ -124,28 +125,31 @@ export function Header({
               )}
             </Link>
 
-            {/* Account chip */}
+            {/* Account chip + sign-out, or sign-in */}
             {userInitials ? (
-              <Link
-                href="/account"
-                style={{
-                  width: 32,
-                  height: 32,
-                  border: `1px solid ${isInk ? "rgba(255,255,255,0.4)" : "var(--ink)"}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: isInk ? "#fff" : "var(--ink)",
-                  textDecoration: "none",
-                  letterSpacing: "0.06em",
-                }}
-                aria-label={`Account: ${userName}`}
-              >
-                {userInitials}
-              </Link>
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/account"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    border: `1px solid ${isInk ? "rgba(255,255,255,0.4)" : "var(--ink)"}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: isInk ? "#fff" : "var(--ink)",
+                    textDecoration: "none",
+                    letterSpacing: "0.06em",
+                  }}
+                  aria-label={`Account: ${userName}`}
+                >
+                  {userInitials}
+                </Link>
+                <SignOutButton variant="ghost" />
+              </div>
             ) : (
               <Link
                 href="/auth/signin"
@@ -213,14 +217,17 @@ export function Header({
                 Notifications {notifCount > 0 && `(${notifCount})`}
               </Link>
               {userInitials ? (
-                <Link
-                  href="/account"
-                  className="kicker"
-                  style={{ color: isInk ? "rgba(255,255,255,0.75)" : "var(--slate)" }}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Account
-                </Link>
+                <>
+                  <Link
+                    href="/account"
+                    className="kicker"
+                    style={{ color: isInk ? "rgba(255,255,255,0.75)" : "var(--slate)" }}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Account
+                  </Link>
+                  <SignOutButton variant="ghost" />
+                </>
               ) : (
                 <Link href="/auth/signin" className="btn btn-primary" style={{ width: "fit-content" }}>
                   Sign in

@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 
-export function SignOutButton() {
+interface SignOutButtonProps {
+  variant?: "default" | "ghost";
+}
+
+export function SignOutButton({ variant = "ghost" }: SignOutButtonProps) {
   const router = useRouter();
 
   async function handleSignOut() {
@@ -14,7 +18,8 @@ export function SignOutButton() {
   return (
     <button
       onClick={handleSignOut}
-      className="text-sm text-gray-600 hover:text-gray-900 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+      className={variant === "default" ? "btn btn-primary" : "btn btn-ghost"}
+      style={{ padding: "6px 14px", fontSize: 10 }}
     >
       Sign out
     </button>

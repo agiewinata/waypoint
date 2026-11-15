@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@iconify/react";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 
 interface NavItem {
   label: string;
@@ -149,12 +150,15 @@ export function SideNav({
               display: "inline-flex",
               alignItems: "center",
               gap: 4,
+              marginBottom: 10,
             }}
           >
             <Icon icon="ph:arrow-square-out" width={12} aria-hidden="true" />
             Switch role
           </Link>
         )}
+
+        <SignOutButton variant="ghost" />
       </div>
     </aside>
   );
