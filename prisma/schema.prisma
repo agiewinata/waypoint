@@ -24,9 +24,10 @@ model User {
   sessions Session[]
   accounts Account[]
 
-  renter Renter?
-  rentee Rentee?
-  admin  Admin?
+  renter        Renter?
+  rentee        Rentee?
+  admin         Admin?
+  notifications Notification[]
 }
 
 model Session {
@@ -246,6 +247,7 @@ model Booking {
   endDate           DateTime      @db.Date
   status            BookingStatus @default(Pending)
   totalPrice        Decimal       @db.Decimal(12, 2)
+  locationConsentAt DateTime?
   createdAt         DateTime      @default(now())
 
   vehicle         Vehicle       @relation(fields: [vehicleVIN], references: [VIN], onDelete: Restrict)
@@ -306,4 +308,18 @@ model Dispute {
 
   @@index([bookingID])
   @@index([resolvedByAdminID])
+}
+
+model Notification {
+  notificationID String    @id @default(cuid())
+  userID         String
+  type           String    @db.VarChar(40)
+  title          String    @db.VarChar(140)
+  body           String    @db.VarChar(500)
+  href           String?   @db.VarChar(200)
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([userID, createdAt])
 }
