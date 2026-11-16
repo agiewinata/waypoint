@@ -14,6 +14,7 @@ import {
   asAdmin,
   createApprovedVehicle,
   verifyCustomer,
+  approveBooking,
   cleanup,
   newJar,
 } from "./helpers";
@@ -205,6 +206,7 @@ describe("POST /api/payments (P1)", () => {
         totalPrice: 400_000,
       },
     });
+    await approveBooking(bk.bookingID);
 
     try {
       const res = await api(freshCustomer.jar, "POST", "/api/payments", {
@@ -212,6 +214,39 @@ describe("POST /api/payments (P1)", () => {
         method: "EWallet",
       });
       expect(res.status).toBe(409);
+    } finally {
+      await cleanup(freshOwner.userId, freshCustomer.userId);
+    }
+  });
+
+  it("409 when a Confirmed booking is not yet approved by an Admin", async () => {
+    if (skip()) return;
+    const freshOwner = await newUser();
+    const { renterID } = await asOwner(freshOwner.jar);
+    const vehicle = await createApprovedVehicle(renterID);
+    const freshCustomer = await newUser();
+    const { renteeID: fRenteeID } = await asCustomer(freshCustomer.jar);
+    await verifyCustomer(fRenteeID);
+
+    const bk = await db.booking.create({
+      data: {
+        vehicleVIN: vehicle.VIN,
+        renteeID: fRenteeID,
+        startDate: new Date("2027-08-01"),
+        endDate: new Date("2027-08-02"),
+        status: "Confirmed",
+        totalPrice: 500_000,
+      },
+    });
+
+    try {
+      const res = await api(freshCustomer.jar, "POST", "/api/payments", {
+        bookingId: bk.bookingID,
+        method: "BankTransfer",
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("Booking is awaiting admin approval");
     } finally {
       await cleanup(freshOwner.userId, freshCustomer.userId);
     }
@@ -237,6 +272,7 @@ describe("POST /api/payments (P1)", () => {
         totalPrice: 1_000_000,
       },
     });
+    await approveBooking(bk.bookingID);
 
     try {
       const res = await api(freshCustomer.jar, "POST", "/api/payments", {
@@ -272,6 +308,7 @@ describe("POST /api/payments (P1)", () => {
         totalPrice: 600_000,
       },
     });
+    await approveBooking(bk.bookingID);
 
     try {
       // First payment succeeds

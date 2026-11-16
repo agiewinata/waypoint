@@ -20,6 +20,7 @@ import {
   setupProfile,
   createApprovedVehicle,
   verifyCustomer,
+  approveBooking,
   cleanup,
   type CookieJar,
 } from "./helpers";
@@ -723,6 +724,7 @@ describe("K8 · Mass assignment protection", () => {
   it("POST /api/payments: amount in body is ignored; response amount = booking.totalPrice", async () => {
     if (skip()) return;
 
+    await approveBooking(confirmedBookingId);
     const res = await api(customerJar, "POST", "/api/payments", {
       bookingId: confirmedBookingId,
       method: "BankTransfer",

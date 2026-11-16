@@ -394,6 +394,36 @@ describe("K16 · Full e2e marketplace flow", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Step 11a: Customer cannot pay before admin approval (P1 → 409)
+  // ---------------------------------------------------------------------------
+
+  it("Step 11a (P1 before approval): customer payment is refused with 409", async () => {
+    if (!serverUp) return;
+
+    const res = await api(customerJar, "POST", "/api/payments", {
+      bookingId,
+      method: "BankTransfer",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Step 11b: Admin approves the confirmed booking (AD8)
+  // ---------------------------------------------------------------------------
+
+  it("Step 11b (AD8 approve): admin approves the confirmed booking", async () => {
+    if (!serverUp) return;
+
+    const res = await api(adminJar, "PATCH", `/api/admin/bookings/${bookingId}`, {
+      action: "approve",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; status: string; approved: boolean };
+    expect(body.status).toBe("Confirmed");
+    expect(body.approved).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
   // Step 12: Customer pays (P1)
   // ---------------------------------------------------------------------------
 
