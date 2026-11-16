@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Icon } from "@iconify/react";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { formatIDR } from "@/lib/format";
+import { uploadDocumentClient } from "@/lib/upload-client";
 import Link from "next/link";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -222,13 +223,9 @@ export function ListCarForm({ cities, vehicleTypes }: ListCarFormProps) {
     file: File,
     code: string
   ): Promise<boolean> {
-    const fd = new FormData();
-    fd.append("type", type);
-    fd.append("listingCode", code);
-    fd.append("file", file);
-    const res = await fetch("/api/documents", { method: "POST", body: fd });
-    if (!res.ok) {
-      setError(await extractErrorMessage(res));
+    const result = await uploadDocumentClient(file, { type, listingCode: code });
+    if (!result.ok) {
+      setError(result.error);
       return false;
     }
     return true;
