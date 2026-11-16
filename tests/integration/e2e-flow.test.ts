@@ -149,6 +149,7 @@ let ktpDocId: string;
 let simDocId: string;
 let bookingId: string;
 let paymentId: string;
+let subBookingId: string;
 
 // ---------------------------------------------------------------------------
 // Full e2e flow — single sequential describe so each step uses the previous
@@ -405,6 +406,8 @@ describe("K16 · Full e2e marketplace flow", () => {
       method: "BankTransfer",
     });
     expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("awaiting admin approval");
   });
 
   // ---------------------------------------------------------------------------
@@ -530,5 +533,90 @@ describe("K16 · Full e2e marketplace flow", () => {
     expect(types).toContain("booking_created");
     expect(types).toContain("payment_held");
     expect(types).toContain("payment_released");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cancel-and-rebook sub-flow: cancelling frees the dates for a new booking
+  // ---------------------------------------------------------------------------
+
+  it("Step 18a (B2): customer books the same vehicle on non-overlapping dates", async () => {
+    if (!serverUp) return;
+
+    const res = await api(customerJar, "POST", "/api/bookings", {
+      listingCode: createdListingCode,
+      startDate: jakartaDateString(10),
+      endDate: jakartaDateString(12),
+      locationConsent: false,
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string };
+    expect(body.id).toBeTruthy();
+    subBookingId = body.id;
+  });
+
+  it("Step 18b (B3 confirm): owner confirms the sub-flow booking", async () => {
+    if (!serverUp) return;
+
+    const res = await api(ownerJar, "PATCH", `/api/bookings/${subBookingId}`, {
+      action: "confirm",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("Confirmed");
+  });
+
+  it("Step 18c (B3 cancel): customer cancels the confirmed booking", async () => {
+    if (!serverUp) return;
+
+    const res = await api(customerJar, "PATCH", `/api/bookings/${subBookingId}`, {
+      action: "cancel",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("Cancelled");
+  });
+
+  it("Step 18d (B2 rebook): the same dates accept a new booking after cancellation", async () => {
+    if (!serverUp) return;
+
+    const res = await api(customerJar, "POST", "/api/bookings", {
+      listingCode: createdListingCode,
+      startDate: jakartaDateString(10),
+      endDate: jakartaDateString(12),
+      locationConsent: false,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Step 19 (K26): notification hrefs only point at allowed routes
+  // ---------------------------------------------------------------------------
+
+  it("Step 19 (K26): owner and customer notification hrefs use allowed prefixes", async () => {
+    if (!serverUp) return;
+
+    const allowedPrefixes = [
+      "/dashboard/owner/bookings/",
+      "/trips/",
+      "/dashboard/customer/checkout/",
+      "/dashboard/customer/verify",
+      "/dashboard/owner/verify",
+      "/dashboard/owner/cars/",
+      "/dashboard/admin",
+      "/dashboard/admin/disputes/",
+    ];
+
+    for (const jar of [ownerJar, customerJar]) {
+      const res = await api(jar, "GET", "/api/notifications");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { items: { href: string | null }[] };
+      const hrefs = body.items
+        .map((n) => n.href)
+        .filter((h): h is string => h !== null);
+      expect(hrefs.length).toBeGreaterThan(0);
+
+      const offenders = hrefs.filter((h) => !allowedPrefixes.some((p) => h.startsWith(p)));
+      expect(offenders).toEqual([]);
+    }
   });
 });
