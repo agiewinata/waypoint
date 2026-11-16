@@ -1,4 +1,20 @@
-# Waypoint: Plan, Phase 3 (Backend Integration)
+# Waypoint: Plan Index + Phase 3 (Backend Integration)
+
+## Phase 4: current plan: see `docs/plan_phase4.md`
+
+Phase 4 (Lifecycle Completion + Account Wiring) is the **active** plan as of 2026-11-16. Phase 3 was approved at `82bcdae`. It covers:
+- admin booking approval;
+- customer cancellation;
+- vehicle editing;
+- Owner KTP/SIM/BPKB verification;
+- `/account`, `/profile/setup` and `/messages` wiring;
+- sign-out hardening;
+- the `middleware.ts` → `proxy.ts` rename;
+- the deferred K17 security pass.
+
+Everything below (Phase 3) stays binding unless `docs/plan_phase4.md` amends it. KPIs K1–K18 carry over, and K19–K28 are new. Index of all plans: `docs/master_plan.md`.
+
+---
 
 Revision: 2 (2026-11-15). Owner: PM / tech lead. This replaces the Phase 0–2 plan, which is in git history at `17c532f`. Phases 0–2 and the 25-screen mock frontend are done.
 

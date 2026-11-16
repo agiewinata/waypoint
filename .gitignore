@@ -48,3 +48,6 @@ next-env.d.ts
 
 # design docs
 /docs/
+
+# graphify knowledge graph (generated, rebuild with /graphify --update .)
+/graphify-out/
