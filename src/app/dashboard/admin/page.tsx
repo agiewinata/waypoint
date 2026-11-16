@@ -1,48 +1,61 @@
-import { Header } from "@/components/ui/Header";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { SideNav } from "@/components/ui/SideNav";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { FadeIn } from "@/components/ui/AnimatedText";
 import { Icon } from "@iconify/react";
 import Link from "next/link";
+import { requireAdminPage } from "@/server/authz";
+import {
+  getAdminStats,
+  listPendingVerifications,
+  listPendingVehicles,
+  listOpenDisputes,
+} from "@/server/admin";
+import { formatDate } from "@/lib/format";
+import { DocumentReviewActions } from "@/components/admin/DocumentReviewActions";
 
 export const dynamic = "force-dynamic";
 
 const NAV_ITEMS = [
-  { label: "Overview",      href: "/dashboard/admin",                    icon: "ph:squares-four" },
-  { label: "Verifications", href: "/dashboard/admin/verifications",      icon: "ph:identification-card", badge: 3 },
-  { label: "Vehicles",      href: "/dashboard/admin/vehicles",           icon: "ph:car", badge: 2 },
-  { label: "Disputes",      href: "/dashboard/admin/disputes",           icon: "ph:scales", badge: 1 },
-  { label: "Bookings",      href: "/dashboard/admin/bookings",           icon: "ph:clipboard-text" },
-  { label: "Users",         href: "/dashboard/admin/users",              icon: "ph:users" },
+  { label: "Overview",      href: "/dashboard/admin", icon: "ph:squares-four" },
+  { label: "Verifications", href: "#verifications",   icon: "ph:identification-card" },
+  { label: "Vehicles",      href: "#vehicles",        icon: "ph:car" },
+  { label: "Disputes",      href: "#disputes",        icon: "ph:scales" },
 ];
 
-const PENDING_VERIFICATIONS = [
-  { id: "DOC-301", user: "Andi Pratama",  type: "KTP + SIM", submitted: "2026-11-13 · 10:20" },
-  { id: "DOC-302", user: "Maya Lestari",  type: "KTP",       submitted: "2026-11-13 · 11:05" },
-  { id: "DOC-303", user: "Rudi Santoso",  type: "SIM",       submitted: "2026-11-12 · 16:48" },
-];
+/** Derives two-letter initials from a display name or email address. */
+function getInitials(name: string, email: string): string {
+  const trimmed = name.trim();
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return trimmed.slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 2).toUpperCase();
+}
 
-const PENDING_VEHICLES = [
-  { code: "WP-7740", vehicle: "2021 Daihatsu Terios", owner: "Dimas Raharjo", submitted: "2026-11-11" },
-  { code: "WP-7745", vehicle: "2022 Suzuki Jimny",    owner: "Hendra Putra",  submitted: "2026-11-12" },
-];
+export default async function AdminConsolePage() {
+  const actor = await requireAdminPage();
 
-const OPEN_DISPUTES = [
-  { id: "DS-021", booking: "BK-0988", parties: "Rudi S. vs Honda Brio owner", status: "Open", created: "2026-11-10" },
-];
+  const [stats, verifications, vehicles, disputes] = await Promise.all([
+    getAdminStats(),
+    listPendingVerifications(),
+    listPendingVehicles(),
+    listOpenDisputes(),
+  ]);
 
-const QUEUE_STATS = [
-  { label: "Pending verifications", value: 3, color: "var(--wait)",   icon: "ph:identification-card" },
-  { label: "Pending vehicles",      value: 2, color: "var(--wait)",   icon: "ph:car" },
-  { label: "Open disputes",         value: 1, color: "var(--alert)",  icon: "ph:scales" },
-  { label: "Active bookings",       value: 8, color: "var(--active)", icon: "ph:calendar-check" },
-];
+  const userInitials = getInitials(actor.user.name, actor.user.email);
 
-export default function AdminConsolePage() {
+  const QUEUE_STATS = [
+    { label: "Pending verifications", value: stats.pendingVerifications, color: "var(--wait)",   icon: "ph:identification-card" },
+    { label: "Pending vehicles",      value: stats.pendingVehicles,      color: "var(--wait)",   icon: "ph:car" },
+    { label: "Open disputes",         value: stats.openDisputes,         color: "var(--alert)",  icon: "ph:scales" },
+    { label: "Active bookings",       value: stats.activeBookings,       color: "var(--active)", icon: "ph:calendar-check" },
+  ];
+
   return (
     <>
-      {/* Admin gets ink header */}
-      <Header variant="ink" userName="Admin" userInitials="WA" notifCount={6} />
+      <SiteHeader variant="ink" />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container">
@@ -50,14 +63,14 @@ export default function AdminConsolePage() {
             <div className="dashboard-sidebar">
               <SideNav
                 items={NAV_ITEMS}
-                userName="Waypoint Admin"
+                userName={actor.user.name || actor.user.email}
                 userRole="Administrator"
-                userInitials="WA"
+                userInitials={userInitials}
               />
             </div>
 
             <div className="dashboard-content">
-              {/* Header */}
+              {/* Page heading */}
               <div
                 style={{
                   borderBottom: "1px solid var(--ink)",
@@ -100,7 +113,12 @@ export default function AdminConsolePage() {
                         alignItems: "flex-start",
                       }}
                     >
-                      <Icon icon={s.icon} width={18} style={{ color: s.color, marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
+                      <Icon
+                        icon={s.icon}
+                        width={18}
+                        style={{ color: s.color, marginTop: 2, flexShrink: 0 }}
+                        aria-hidden="true"
+                      />
                       <div>
                         <div
                           style={{
@@ -122,7 +140,7 @@ export default function AdminConsolePage() {
 
               {/* Pending verifications */}
               <FadeIn delay={0.1}>
-                <section style={{ marginBottom: 36 }}>
+                <section id="verifications" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
                   <div
                     style={{
                       display: "flex",
@@ -146,53 +164,72 @@ export default function AdminConsolePage() {
                       <Icon icon="ph:identification-card" width={18} style={{ color: "var(--wait)" }} aria-hidden="true" />
                       Pending verifications
                     </h2>
-                    <Link href="/dashboard/admin/verifications" className="kicker" style={{ color: "var(--accent)", textDecoration: "none" }}>
-                      View all →
-                    </Link>
                   </div>
-                  <div style={{ border: "1px solid var(--line)" }}>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "80px 1fr 100px 1fr",
-                        padding: "10px 16px",
-                        borderBottom: "1px solid var(--ink)",
-                        background: "var(--ink)",
-                      }}
-                    >
-                      {["Doc ID", "User", "Type", "Submitted"].map((h) => (
-                        <span key={h} style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)" }}>
-                          {h}
-                        </span>
-                      ))}
-                    </div>
-                    {PENDING_VERIFICATIONS.map((v, i) => (
-                      <Link
-                        key={v.id}
-                        href={`/dashboard/admin/verifications/${v.id}`}
-                        className="row-hover"
+
+                  {verifications.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "var(--slate)", padding: "16px 0" }}>
+                      No pending verifications.
+                    </p>
+                  ) : (
+                    <div style={{ border: "1px solid var(--line)" }}>
+                      <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "80px 1fr 100px 1fr",
-                          padding: "12px 16px",
-                          borderBottom: i < PENDING_VERIFICATIONS.length - 1 ? "1px solid var(--line)" : "none",
-                          alignItems: "center",
-                          textDecoration: "none",
+                          gridTemplateColumns: "1fr 80px 130px 1fr",
+                          padding: "10px 16px",
+                          borderBottom: "1px solid var(--ink)",
+                          background: "var(--ink)",
                         }}
                       >
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>{v.id}</span>
-                        <span style={{ fontSize: 13, color: "var(--ink)" }}>{v.user}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{v.type}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{v.submitted}</span>
-                      </Link>
-                    ))}
-                  </div>
+                        {["Customer", "Type", "Submitted", "Actions"].map((h) => (
+                          <span
+                            key={h}
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              letterSpacing: "0.1em",
+                              textTransform: "uppercase",
+                              color: "rgba(255,255,255,0.7)",
+                            }}
+                          >
+                            {h}
+                          </span>
+                        ))}
+                      </div>
+                      {verifications.map((v, i) => (
+                        <div
+                          key={v.id}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 80px 130px 1fr",
+                            padding: "12px 16px",
+                            borderBottom: i < verifications.length - 1 ? "1px solid var(--line)" : "none",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ fontSize: 13, color: "var(--ink)" }}>{v.customerName}</span>
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>
+                            {v.type}
+                          </span>
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>
+                            {formatDate(v.createdAt)}
+                          </span>
+                          <DocumentReviewActions
+                            documentId={v.id}
+                            documentType={v.type}
+                            currentStatus="Pending"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
               </FadeIn>
 
-              {/* Pending vehicles */}
+              {/* Pending vehicle approvals */}
               <FadeIn delay={0.15}>
-                <section style={{ marginBottom: 36 }}>
+                <section id="vehicles" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
                   <div
                     style={{
                       display: "flex",
@@ -216,53 +253,77 @@ export default function AdminConsolePage() {
                       <Icon icon="ph:car" width={18} style={{ color: "var(--wait)" }} aria-hidden="true" />
                       Pending vehicle approvals
                     </h2>
-                    <Link href="/dashboard/admin/vehicles" className="kicker" style={{ color: "var(--accent)", textDecoration: "none" }}>
-                      View all →
-                    </Link>
                   </div>
-                  <div style={{ border: "1px solid var(--line)" }}>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "80px 2fr 1fr 1fr",
-                        padding: "10px 16px",
-                        borderBottom: "1px solid var(--ink)",
-                        background: "var(--ink)",
-                      }}
-                    >
-                      {["Code", "Vehicle", "Owner", "Submitted"].map((h) => (
-                        <span key={h} style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)" }}>
-                          {h}
-                        </span>
-                      ))}
-                    </div>
-                    {PENDING_VEHICLES.map((v, i) => (
-                      <Link
-                        key={v.code}
-                        href={`/dashboard/admin/vehicles/${v.code}`}
-                        className="row-hover"
+
+                  {vehicles.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "var(--slate)", padding: "16px 0" }}>
+                      No pending vehicles.
+                    </p>
+                  ) : (
+                    <div style={{ border: "1px solid var(--line)" }}>
+                      <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "80px 2fr 1fr 1fr",
-                          padding: "12px 16px",
-                          borderBottom: i < PENDING_VEHICLES.length - 1 ? "1px solid var(--line)" : "none",
-                          alignItems: "center",
-                          textDecoration: "none",
+                          gridTemplateColumns: "90px 2fr 1fr 80px",
+                          padding: "10px 16px",
+                          borderBottom: "1px solid var(--ink)",
+                          background: "var(--ink)",
                         }}
                       >
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>{v.code}</span>
-                        <span style={{ fontSize: 13, color: "var(--ink)" }}>{v.vehicle}</span>
-                        <span style={{ fontSize: 13, color: "var(--slate)" }}>{v.owner}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{v.submitted}</span>
-                      </Link>
-                    ))}
-                  </div>
+                        {["Code", "Vehicle", "Owner", "Review"].map((h) => (
+                          <span
+                            key={h}
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              letterSpacing: "0.1em",
+                              textTransform: "uppercase",
+                              color: "rgba(255,255,255,0.7)",
+                            }}
+                          >
+                            {h}
+                          </span>
+                        ))}
+                      </div>
+                      {vehicles.map((v, i) => (
+                        <div
+                          key={v.listingCode}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "90px 2fr 1fr 80px",
+                            padding: "12px 16px",
+                            borderBottom: i < vehicles.length - 1 ? "1px solid var(--line)" : "none",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>
+                            {v.listingCode}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--ink)" }}>
+                            {v.year} {v.make} {v.model}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--slate)" }}>{v.ownerName}</span>
+                          <Link
+                            href={`/dashboard/admin/vehicles/${v.listingCode}`}
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 11,
+                              color: "var(--accent)",
+                              textDecoration: "none",
+                            }}
+                          >
+                            Review →
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
               </FadeIn>
 
-              {/* Disputes */}
+              {/* Open disputes */}
               <FadeIn delay={0.2}>
-                <section>
+                <section id="disputes" style={{ scrollMarginTop: 80 }}>
                   <div
                     style={{
                       display: "flex",
@@ -286,48 +347,70 @@ export default function AdminConsolePage() {
                       <Icon icon="ph:scales" width={18} style={{ color: "var(--alert)" }} aria-hidden="true" />
                       Open disputes
                     </h2>
-                    <Link href="/dashboard/admin/disputes" className="kicker" style={{ color: "var(--accent)", textDecoration: "none" }}>
-                      View all →
-                    </Link>
                   </div>
-                  <div style={{ border: "1px solid var(--line)" }}>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "80px 90px 2fr 100px 1fr",
-                        padding: "10px 16px",
-                        borderBottom: "1px solid var(--ink)",
-                        background: "var(--ink)",
-                      }}
-                    >
-                      {["Dispute ID", "Booking", "Parties", "Status", "Created"].map((h) => (
-                        <span key={h} style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)" }}>
-                          {h}
-                        </span>
-                      ))}
-                    </div>
-                    {OPEN_DISPUTES.map((d, i) => (
-                      <Link
-                        key={d.id}
-                        href={`/dashboard/admin/disputes/${d.id}`}
-                        className="row-hover"
+
+                  {disputes.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "var(--slate)", padding: "16px 0" }}>
+                      No open disputes.
+                    </p>
+                  ) : (
+                    <div style={{ border: "1px solid var(--line)" }}>
+                      <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "80px 90px 2fr 100px 1fr",
-                          padding: "12px 16px",
-                          borderBottom: i < OPEN_DISPUTES.length - 1 ? "1px solid var(--line)" : "none",
-                          alignItems: "center",
-                          textDecoration: "none",
+                          gridTemplateColumns: "90px 2fr 2fr 110px 80px",
+                          padding: "10px 16px",
+                          borderBottom: "1px solid var(--ink)",
+                          background: "var(--ink)",
                         }}
                       >
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>{d.id}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{d.booking}</span>
-                        <span style={{ fontSize: 13, color: "var(--ink)" }}>{d.parties}</span>
-                        <StatusTag status={d.status} />
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{d.created}</span>
-                      </Link>
-                    ))}
-                  </div>
+                        {["Dispute", "Customer", "Owner", "Status", "Review"].map((h) => (
+                          <span
+                            key={h}
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              letterSpacing: "0.1em",
+                              textTransform: "uppercase",
+                              color: "rgba(255,255,255,0.7)",
+                            }}
+                          >
+                            {h}
+                          </span>
+                        ))}
+                      </div>
+                      {disputes.map((d, i) => (
+                        <div
+                          key={d.id}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "90px 2fr 2fr 110px 80px",
+                            padding: "12px 16px",
+                            borderBottom: i < disputes.length - 1 ? "1px solid var(--line)" : "none",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>
+                            {d.id}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--ink)" }}>{d.customerName}</span>
+                          <span style={{ fontSize: 13, color: "var(--slate)" }}>{d.ownerName}</span>
+                          <StatusTag status={d.status} />
+                          <Link
+                            href={`/dashboard/admin/disputes/${d.id}`}
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 11,
+                              color: "var(--accent)",
+                              textDecoration: "none",
+                            }}
+                          >
+                            Review →
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
               </FadeIn>
             </div>
