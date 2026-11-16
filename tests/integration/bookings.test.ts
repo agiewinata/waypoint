@@ -4,6 +4,7 @@
  * Run with: npm run test:integration (requires dev server at http://localhost:3000)
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { db } from "@/lib/db";
 import {
   api,
   newUser,
@@ -11,6 +12,8 @@ import {
   asOwner,
   asCustomer,
   createApprovedVehicle,
+  verifyCustomer,
+  approveBooking,
   cleanup,
   type CookieJar,
 } from "./helpers";
@@ -379,5 +382,183 @@ describe("PATCH /api/bookings/:id (B3)", () => {
     expect(res.status).toBe(404);
 
     await cleanup(otherOwnerUserId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K20 — customer cancellation (B3 cancel)
+// ---------------------------------------------------------------------------
+
+describe("PATCH /api/bookings/:id cancel (K20)", () => {
+  let cancelListing: string;
+  let raceVIN: string;
+  let raceJar: CookieJar;
+  let raceUserId: string;
+  let raceRenteeID: string;
+
+  beforeAll(async () => {
+    if (!serverUp) return;
+    // Dedicated vehicle so these date ranges don't collide with the B2/B3 suites
+    const vehicle = await createApprovedVehicle(renterID, { pricePerDay: 100_000 });
+    cancelListing = vehicle.listingCode;
+
+    const raceVehicle = await createApprovedVehicle(renterID, { pricePerDay: 200_000 });
+    raceVIN = raceVehicle.VIN;
+    const raceResult = await newUser();
+    raceJar = raceResult.jar;
+    raceUserId = raceResult.userId;
+    const raceProfile = await asCustomer(raceJar);
+    raceRenteeID = raceProfile.renteeID;
+    await verifyCustomer(raceRenteeID);
+  }, 30_000);
+
+  afterAll(async () => {
+    if (serverUp && raceUserId) await cleanup(raceUserId);
+  });
+
+  /** Creates a Pending booking through B2 and returns its ID. */
+  async function createPendingBooking(startAhead: number, endAhead: number): Promise<string> {
+    const res = await api(customerJar, "POST", "/api/bookings", {
+      listingCode: cancelListing,
+      startDate: futureDate(startAhead),
+      endDate: futureDate(endAhead),
+      locationConsent: false,
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string };
+    return body.id;
+  }
+
+  /** Inserts a booking directly in the given status for the cancel vehicle. */
+  async function insertBooking(
+    status: "Active" | "Completed" | "Confirmed",
+    startAhead: number,
+    endAhead: number
+  ): Promise<string> {
+    const vehicle = await db.vehicle.findUniqueOrThrow({
+      where: { listingCode: cancelListing },
+      select: { VIN: true },
+    });
+    const rentee = await db.rentee.findUniqueOrThrow({
+      where: { userID: customerUserId },
+      select: { renteeID: true },
+    });
+    const bk = await db.booking.create({
+      data: {
+        vehicleVIN: vehicle.VIN,
+        renteeID: rentee.renteeID,
+        startDate: new Date(futureDate(startAhead)),
+        endDate: new Date(futureDate(endAhead)),
+        totalPrice: 100_000,
+        status,
+      },
+    });
+    return bk.bookingID;
+  }
+
+  it("Pending booking → cancel 200 with status Cancelled", async () => {
+    if (skip()) return;
+    const id = await createPendingBooking(100, 102);
+    const res = await api(customerJar, "PATCH", `/api/bookings/${id}`, { action: "cancel" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; status: string };
+    expect(body.id).toBe(id);
+    expect(body.status).toBe("Cancelled");
+  });
+
+  it("Confirmed booking with no payment → cancel 200", async () => {
+    if (skip()) return;
+    const id = await createPendingBooking(110, 112);
+    const confirm = await api(ownerJar, "PATCH", `/api/bookings/${id}`, { action: "confirm" });
+    expect(confirm.status).toBe(200);
+
+    const res = await api(customerJar, "PATCH", `/api/bookings/${id}`, { action: "cancel" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("Cancelled");
+  });
+
+  it("Confirmed booking with a Held payment → cancel 409", async () => {
+    if (skip()) return;
+    const id = await insertBooking("Confirmed", 120, 122);
+    await db.payment.create({
+      data: { bookingID: id, amount: 100_000, method: "Card", status: "Held", paidAt: new Date() },
+    });
+
+    const res = await api(customerJar, "PATCH", `/api/bookings/${id}`, { action: "cancel" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe(
+      "Paid bookings can't be cancelled. Raise a dispute so an admin can refund."
+    );
+  });
+
+  it("Active booking → cancel 409", async () => {
+    if (skip()) return;
+    const id = await insertBooking("Active", 130, 132);
+    const res = await api(customerJar, "PATCH", `/api/bookings/${id}`, { action: "cancel" });
+    expect(res.status).toBe(409);
+  });
+
+  it("Completed booking → cancel 409", async () => {
+    if (skip()) return;
+    const id = await insertBooking("Completed", 140, 142);
+    const res = await api(customerJar, "PATCH", `/api/bookings/${id}`, { action: "cancel" });
+    expect(res.status).toBe(409);
+  });
+
+  it("after cancel, a new B2 on the same dates → 201", async () => {
+    if (skip()) return;
+    const res = await api(customerJar, "POST", "/api/bookings", {
+      listingCode: cancelListing,
+      startDate: futureDate(100),
+      endDate: futureDate(102),
+      locationConsent: false,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("the Owner's N1 contains booking_cancelled", async () => {
+    if (skip()) return;
+    const res = await api(ownerJar, "GET", "/api/notifications");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { type: string }[] };
+    expect(body.items.some((n) => n.type === "booking_cancelled")).toBe(true);
+  });
+
+  it("cancel and pay racing on an approved Confirmed booking never leaves Cancelled with a Held payment", async () => {
+    if (skip()) return;
+    const bk = await db.booking.create({
+      data: {
+        vehicleVIN: raceVIN,
+        renteeID: raceRenteeID,
+        startDate: new Date(futureDate(150)),
+        endDate: new Date(futureDate(152)),
+        totalPrice: 400_000,
+        status: "Confirmed",
+      },
+    });
+    await approveBooking(bk.bookingID);
+
+    const [cancelRes, payRes] = await Promise.all([
+      api(raceJar, "PATCH", `/api/bookings/${bk.bookingID}`, { action: "cancel" }),
+      api(raceJar, "POST", "/api/payments", { bookingId: bk.bookingID, method: "Card" }),
+    ]);
+
+    // Exactly one of the two wins; the other is refused with 409
+    const statuses = [cancelRes.status, payRes.status].sort();
+    expect([[200, 409], [201, 409]]).toContainEqual(statuses);
+
+    const after = await db.booking.findUniqueOrThrow({
+      where: { bookingID: bk.bookingID },
+      include: { payments: true },
+    });
+    const hasHeld = after.payments.some((p) => p.status === "Held");
+    if (after.status === "Cancelled") {
+      expect(hasHeld).toBe(false);
+    } else {
+      expect(after.status).toBe("Confirmed");
+      expect(hasHeld).toBe(true);
+    }
   });
 });
