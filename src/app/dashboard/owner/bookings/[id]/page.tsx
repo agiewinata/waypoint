@@ -26,8 +26,13 @@ export default async function BookingDetailPage({
     detail.paymentStatus !== null &&
     ["Held", "Released"].includes(detail.paymentStatus);
 
+  // The booking row records no actor for Cancelled, and Waypoint rejection also
+  // sets Cancelled, so the wording covers both.
+  const cancelled = detail.status === "Cancelled";
+
   const checklist = [
     { label: "Owner confirmed",   done: ownerConfirmed },
+    { label: "Admin approved",    done: detail.adminApproved },
     { label: "Customer verified", done: customerVerified },
     { label: "Payment held",      done: paymentHeld },
   ];
@@ -80,7 +85,21 @@ export default async function BookingDetailPage({
                 {detail.make} {detail.model}
               </h1>
             </div>
-            <StatusTag status={detail.status} />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              <StatusTag status={detail.status} />
+              {cancelled && (
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    letterSpacing: "0.06em",
+                    color: "var(--slate)",
+                  }}
+                >
+                  Cancelled by customer or not approved by Waypoint
+                </span>
+              )}
+            </div>
           </div>
 
           <div
