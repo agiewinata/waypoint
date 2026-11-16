@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-// Routes that require a session. Middleware does a lightweight cookie-presence check;
+// Routes that require a session. Proxy does a lightweight cookie-presence check;
 // the page itself does full session validation.
 const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -8,9 +8,10 @@ const PROTECTED_PREFIXES = [
   "/notifications",
   "/disputes",
   "/booking/success",
+  "/account",
 ];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isProtected = PROTECTED_PREFIXES.some((prefix) =>
@@ -40,5 +41,6 @@ export const config = {
     "/notifications",
     "/disputes/:path*",
     "/booking/success",
+    "/account",
   ],
 };
