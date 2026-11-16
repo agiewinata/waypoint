@@ -1,38 +1,47 @@
-import { Header } from "@/components/ui/Header";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { SideNav } from "@/components/ui/SideNav";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { FadeIn } from "@/components/ui/AnimatedText";
 import { Icon } from "@iconify/react";
 import Link from "next/link";
+import { requireCustomerPage } from "@/server/authz";
+import { listBookingsForCustomer } from "@/server/bookings";
+import { formatIDR, formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const NAV_ITEMS = [
-  { label: "My Trips",     href: "/dashboard/customer",          icon: "ph:car" },
-  { label: "Verification", href: "/dashboard/customer/verify",   icon: "ph:identification-card", badge: 1 },
-  { label: "Messages",     href: "/messages",                     icon: "ph:chat-dots" },
-  { label: "Notifications",href: "/notifications",                icon: "ph:bell" },
-  { label: "Account",      href: "/account",                      icon: "ph:user" },
-];
-
-const TRIPS = [
-  { id: "BK-1182", vehicle: "2022 Toyota Avanza", city: "Jakarta", start: "2026-11-10", end: "2026-11-13", days: 3, total: 960000, status: "Active"    },
-  { id: "BK-1051", vehicle: "2021 Mitsubishi Xpander", city: "Surabaya", start: "2026-10-20", end: "2026-10-23", days: 3, total: 1140000, status: "Completed" },
-  { id: "BK-0988", vehicle: "2023 Honda Brio", city: "Bandung", start: "2026-09-14", end: "2026-09-16", days: 2, total: 500000, status: "Completed" },
-  { id: "BK-0901", vehicle: "2022 Daihatsu Rocky", city: "Jakarta", start: "2026-08-05", end: "2026-08-07", days: 2, total: 840000, status: "Cancelled"  },
-];
-
-function formatIDR(n: number) {
-  return `RP ${n.toLocaleString("id-ID")}`;
+/** Derives two-letter initials from a display name. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 }
 
-export default function CustomerDashboardPage() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const verificationStatus = ("Pending" as any) as "Pending" | "Verified" | "Rejected";
+export default async function CustomerDashboardPage() {
+  const actor = await requireCustomerPage();
+  const { items } = await listBookingsForCustomer(actor.rentee.renteeID);
+
+  const verificationStatus = actor.rentee.verificationStatus;
+  const userName = actor.user.name || actor.user.email;
+  const userInitials = initials(userName);
+
+  const isVerified = verificationStatus === "Verified";
+  const activeCount = items.filter((b) => b.status === "Active").length;
+  const totalSpent = items.reduce((sum, b) => sum + b.totalPrice, 0);
+
+  const NAV_ITEMS = [
+    { label: "My Trips",      href: "/dashboard/customer",        icon: "ph:car" },
+    { label: "Verification",  href: "/dashboard/customer/verify", icon: "ph:identification-card", badge: isVerified ? 0 : 1 },
+    { label: "Messages",      href: "/messages",                  icon: "ph:chat-dots" },
+    { label: "Notifications", href: "/notifications",             icon: "ph:bell" },
+    { label: "Account",       href: "/account",                   icon: "ph:user" },
+  ];
 
   return (
     <>
-      <Header userName="Andi Pratama" userInitials="AP" notifCount={2} />
+      <SiteHeader />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container">
@@ -41,10 +50,10 @@ export default function CustomerDashboardPage() {
             <div className="dashboard-sidebar">
               <SideNav
                 items={NAV_ITEMS}
-                userName="Andi Pratama"
+                userName={userName}
                 userRole="Customer"
-                userInitials="AP"
-                keyFigure={formatIDR(2600000)}
+                userInitials={userInitials}
+                keyFigure={formatIDR(totalSpent)}
                 keyFigureLabel="Total spent"
                 switchRoleHref="/dashboard/owner"
               />
@@ -66,7 +75,9 @@ export default function CustomerDashboardPage() {
                 }}
               >
                 <div>
-                  <span className="kicker" style={{ marginBottom: 6, display: "block" }}>Customer dashboard</span>
+                  <span className="kicker" style={{ marginBottom: 6, display: "block" }}>
+                    Customer dashboard
+                  </span>
                   <h1
                     style={{
                       fontFamily: "var(--font-display)",
@@ -86,7 +97,7 @@ export default function CustomerDashboardPage() {
               </div>
 
               {/* Verification banner */}
-              {verificationStatus !== "Verified" && (
+              {!isVerified && (
                 <FadeIn>
                   <div
                     style={{
@@ -101,18 +112,37 @@ export default function CustomerDashboardPage() {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <Icon icon="ph:warning" width={18} style={{ color: "var(--wait)", flexShrink: 0 }} aria-hidden="true" />
+                      <Icon
+                        icon="ph:warning"
+                        width={18}
+                        style={{ color: "var(--wait)", flexShrink: 0 }}
+                        aria-hidden="true"
+                      />
                       <div>
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--wait)" }}>
+                        <div
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "var(--wait)",
+                          }}
+                        >
                           Identity unverified
                         </div>
                         <div style={{ fontSize: 13, color: "var(--slate)", marginTop: 3 }}>
-                          Upload your KTP + SIM to unlock payment and confirm bookings.
+                          {verificationStatus === "Rejected"
+                            ? "Verification rejected — resubmit your documents"
+                            : "Complete identity verification to unlock booking"}
                         </div>
                       </div>
                     </div>
-                    <Link href="/dashboard/customer/verify" className="btn btn-ghost" style={{ fontSize: 11, flexShrink: 0 }}>
-                      Verify now
+                    <Link
+                      href="/dashboard/customer/verify"
+                      className="btn btn-ghost"
+                      style={{ fontSize: 11, flexShrink: 0 }}
+                    >
+                      {verificationStatus === "Rejected" ? "Resubmit" : "Verify now"}
                     </Link>
                   </div>
                 </FadeIn>
@@ -129,10 +159,10 @@ export default function CustomerDashboardPage() {
                   }}
                 >
                   {[
-                    { label: "Total trips",   value: "4",              mono: false },
-                    { label: "Active now",    value: "1",              mono: false },
-                    { label: "Total spent",   value: "RP 2.600.000",   mono: true  },
-                    { label: "Verification",  value: verificationStatus, mono: true },
+                    { label: "Total trips",  value: String(items.length), mono: false },
+                    { label: "Active now",   value: String(activeCount),  mono: false },
+                    { label: "Total spent",  value: formatIDR(totalSpent), mono: true },
+                    { label: "Verification", value: verificationStatus,   mono: true },
                   ].map((kpi, i) => (
                     <div
                       key={kpi.label}
@@ -151,7 +181,9 @@ export default function CustomerDashboardPage() {
                       >
                         {kpi.value}
                       </div>
-                      <div className="kicker" style={{ marginTop: 4 }}>{kpi.label}</div>
+                      <div className="kicker" style={{ marginTop: 4 }}>
+                        {kpi.label}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -163,7 +195,7 @@ export default function CustomerDashboardPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 2fr 100px 120px 100px",
+                    gridTemplateColumns: "1fr 2fr 150px 120px 120px",
                     padding: "10px 16px",
                     borderBottom: "1px solid var(--ink)",
                     background: "var(--ink)",
@@ -185,46 +217,101 @@ export default function CustomerDashboardPage() {
                   ))}
                 </div>
 
-                {TRIPS.map((trip, i) => (
-                  <Link
-                    key={trip.id}
-                    href={`/trips/${trip.id}`}
-                    className="row-hover"
+                {items.length === 0 && (
+                  <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 2fr 100px 120px 100px",
-                      padding: "14px 16px",
-                      borderBottom: i < TRIPS.length - 1 ? "1px solid var(--line)" : "none",
-                      textDecoration: "none",
-                      alignItems: "center",
+                      padding: "32px 16px",
+                      textAlign: "center",
+                      color: "var(--slate)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      letterSpacing: "0.06em",
                     }}
                   >
-                    <span
+                    No trips yet.{" "}
+                    <Link href="/" style={{ color: "var(--accent)" }}>
+                      Book your first car →
+                    </Link>
+                  </div>
+                )}
+
+                {items.map((trip, i) => {
+                  // Confirmed bookings go to checkout; all others go to the trip detail page
+                  const href =
+                    trip.status === "Confirmed"
+                      ? `/dashboard/customer/checkout/${trip.id}`
+                      : `/trips/${trip.id}`;
+
+                  return (
+                    <Link
+                      key={trip.id}
+                      href={href}
+                      className="row-hover"
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 12,
-                        color: "var(--accent)",
-                        letterSpacing: "0.06em",
+                        display: "grid",
+                        gridTemplateColumns: "1fr 2fr 150px 120px 120px",
+                        padding: "14px 16px",
+                        borderBottom: i < items.length - 1 ? "1px solid var(--line)" : "none",
+                        textDecoration: "none",
+                        alignItems: "center",
                       }}
                     >
-                      {trip.id}
-                    </span>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink)" }}>{trip.vehicle}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                        <Icon icon="ph:map-pin" width={11} style={{ color: "var(--slate)" }} aria-hidden="true" />
-                        <span className="kicker">{trip.city}</span>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12,
+                          color: "var(--accent)",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        {trip.id}
+                      </span>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink)" }}>
+                          {trip.make} {trip.model}
+                        </div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--slate)", marginTop: 2 }}>
+                          {trip.listingCode}
+                        </div>
                       </div>
-                    </div>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>
-                      {trip.start}
-                    </span>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink)", fontWeight: 600 }}>
-                      {formatIDR(trip.total)}
-                    </span>
-                    <StatusTag status={trip.status} />
-                  </Link>
-                ))}
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          color: "var(--slate)",
+                        }}
+                      >
+                        {formatDate(trip.startDate)}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12,
+                          color: "var(--ink)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {formatIDR(trip.totalPrice)}
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <StatusTag status={trip.status} />
+                        {trip.status === "Confirmed" && (
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 9,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              color: "var(--accent)",
+                            }}
+                          >
+                            Pay now
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </div>
