@@ -1,87 +1,76 @@
-"use client";
-
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { Icon } from "@iconify/react";
-import { Header } from "@/components/ui/Header";
+import { auth } from "@/lib/auth";
+import { getPublicVehicle } from "@/server/vehicles";
+import { getProfilesForUser } from "@/server/profiles";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
-import { StatusTag } from "@/components/ui/StatusTag";
 import { FadeIn } from "@/components/ui/AnimatedText";
+import { BookingCard } from "@/components/booking/BookingCard";
+import { formatIDR } from "@/lib/format";
+import { todayJakarta, toDateOnly } from "@/lib/dates";
+import type { User } from "@/generated/prisma/client";
+import type { ViewerState } from "@/components/booking/BookingCard";
 
-/* ─── Mock vehicle ───────────────────────────────────────────────────────── */
-const VEHICLE = {
-  id: "1",
-  listingCode: "WP-7731",
-  make: "Toyota",
-  model: "Avanza",
-  year: 2022,
-  type: "MPV",
-  city: "Jakarta",
-  pricePerDay: 320000,
-  status: "Approved",
-  VIN: "MHF11BY3JCK012345",
-  plateNumber: "B 1234 XY",
-  ownerName: "Dimas Raharjo",
-  ownerVerified: true,
-  specs: [
-    { label: "Make / Model",   value: "Toyota Avanza" },
-    { label: "Year",           value: "2022" },
-    { label: "Type",           value: "MPV" },
-    { label: "Plate",          value: "B •••• XY" },
-    { label: "City",           value: "Jakarta" },
-    { label: "Seats",          value: "7 seats" },
-    { label: "Fuel",           value: "Petrol" },
-    { label: "Transmission",   value: "Manual" },
-  ],
-};
+export const dynamic = "force-dynamic";
 
-function formatIDR(n: number) {
-  return `RP ${n.toLocaleString("id-ID")}`;
+interface VehicleDetailPageProps {
+  params: Promise<{ id: string }>;
 }
 
-export default function VehicleDetailPage() {
-  const v = VEHICLE;
-  const today = new Date().toISOString().split("T")[0];
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+export default async function VehicleDetailPage({ params }: VehicleDetailPageProps) {
+  const { id: listingCode } = await params;
 
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(tomorrow);
-  const [submitted, setSubmitted] = useState(false);
+  const vehicle = await getPublicVehicle(listingCode);
+  if (!vehicle) notFound();
 
-  const days = Math.max(
-    1,
-    Math.round(
-      (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000
-    )
-  );
-  const total = days * v.pricePerDay;
+  // Determine what the viewer can do
+  const result = await auth.api.getSession({ headers: await headers() });
 
-  function handleBook(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
+  let viewerState: ViewerState = "guest";
+  if (result) {
+    const profiles = await getProfilesForUser((result.user as User).id);
+    viewerState = profiles.rentee ? "can-book" : "no-profile";
   }
+
+  const todayMin = toDateOnly(todayJakarta());
+
+  const specs = [
+    { label: "Make / Model", value: `${vehicle.make} ${vehicle.model}` },
+    { label: "Year",         value: String(vehicle.year) },
+    { label: "Type",         value: vehicle.type },
+    { label: "City",         value: vehicle.city },
+  ];
+
+  const ownerInitials = vehicle.ownerFirstName.slice(0, 2).toUpperCase();
 
   return (
     <>
-      <Header />
+      <SiteHeader />
 
       <main style={{ padding: "36px 0 80px", background: "var(--paper)" }}>
         <div className="page-container">
           <Breadcrumb
             crumbs={[
               { label: "Browse", href: "/" },
-              { label: `${v.year} ${v.make} ${v.model}` },
+              { label: `${vehicle.year} ${vehicle.make} ${vehicle.model}` },
             ]}
           />
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr min(360px,100%)", gap: 40, alignItems: "start" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr min(360px,100%)",
+              gap: 40,
+              alignItems: "start",
+            }}
+          >
             {/* Left col */}
             <div>
               {/* Kicker */}
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <span className="kicker">{v.listingCode}</span>
-                <span className="kicker">·</span>
-                <StatusTag status={v.status} />
+                <span className="kicker">{vehicle.listingCode}</span>
               </div>
 
               {/* Title */}
@@ -95,15 +84,15 @@ export default function VehicleDetailPage() {
                   marginBottom: 6,
                 }}
               >
-                {v.year} {v.make} {v.model}
+                {vehicle.year} {vehicle.make} {vehicle.model}
               </h1>
 
               <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--slate)", fontSize: 14 }}>
                   <Icon icon="ph:map-pin" width={14} aria-hidden="true" />
-                  {v.city}
+                  {vehicle.city}
                 </span>
-                <span className="kicker">{v.type}</span>
+                <span className="kicker">{vehicle.type}</span>
               </div>
 
               {/* Photo placeholder */}
@@ -148,18 +137,14 @@ export default function VehicleDetailPage() {
                   }}
                   aria-hidden="true"
                 >
-                  DR
+                  {ownerInitials}
                 </div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink)" }}>{v.ownerName}</div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink)" }}>
+                    {vehicle.ownerFirstName}
+                  </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                     <span className="kicker">Owner</span>
-                    {v.ownerVerified && (
-                      <span className="tag" style={{ color: "var(--ok)" }}>
-                        <span className="dot" style={{ background: "var(--ok)" }} />
-                        Verified
-                      </span>
-                    )}
                   </div>
                 </div>
               </div>
@@ -181,12 +166,27 @@ export default function VehicleDetailPage() {
                   Vehicle specs
                 </h2>
                 <div style={{ marginTop: 8 }}>
-                  {v.specs.map((s) => (
+                  {specs.map((s) => (
                     <div key={s.label} className="spec-row">
                       <span className="spec-label">{s.label}</span>
                       <span className="spec-value">{s.value}</span>
                     </div>
                   ))}
+                  {/* Price row */}
+                  <div className="spec-row">
+                    <span className="spec-label">Price per day</span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: "var(--ink)",
+                        flex: 1,
+                      }}
+                    >
+                      {formatIDR(vehicle.pricePerDay)}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -200,9 +200,9 @@ export default function VehicleDetailPage() {
                 }}
               >
                 {[
-                  { icon: "ph:shield-check", label: "Escrow protection" },
-                  { icon: "ph:identification-card", label: "ID-verified owner" },
-                  { icon: "ph:map-pin-line", label: "Location tracking" },
+                  { icon: "ph:shield-check",          label: "Escrow protection" },
+                  { icon: "ph:identification-card",   label: "ID-verified owner" },
+                  { icon: "ph:map-pin-line",           label: "Location tracking" },
                 ].map((b) => (
                   <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Icon icon={b.icon} width={16} style={{ color: "var(--accent)" }} aria-hidden="true" />
@@ -215,164 +215,13 @@ export default function VehicleDetailPage() {
             </div>
 
             {/* Right col — booking card */}
-            <div
-              style={{
-                position: "sticky",
-                top: 80,
-                border: "1px solid var(--ink)",
-                background: "var(--surface)",
-              }}
-            >
-              {/* Price header */}
-              <div
-                style={{
-                  borderBottom: "1px solid var(--ink)",
-                  padding: "18px 20px",
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                }}
-              >
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>
-                  {formatIDR(v.pricePerDay)}
-                </span>
-                <span className="kicker">per day</span>
-              </div>
-
-              <AnimatePresence mode="wait">
-                {!submitted ? (
-                  <motion.form
-                    key="form"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onSubmit={handleBook}
-                    style={{ padding: "20px" }}
-                  >
-                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      <div>
-                        <label className="field-label" htmlFor="start-date">Start date</label>
-                        <input
-                          id="start-date"
-                          type="date"
-                          required
-                          value={startDate}
-                          min={today}
-                          onChange={(e) => setStartDate(e.target.value)}
-                          className="input"
-                        />
-                      </div>
-                      <div>
-                        <label className="field-label" htmlFor="end-date">End date</label>
-                        <input
-                          id="end-date"
-                          type="date"
-                          required
-                          value={endDate}
-                          min={startDate}
-                          onChange={(e) => setEndDate(e.target.value)}
-                          className="input"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Price breakdown */}
-                    <div
-                      style={{
-                        marginTop: 20,
-                        borderTop: "1px solid var(--line)",
-                        paddingTop: 16,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8,
-                      }}
-                    >
-                      <div className="spec-row" style={{ padding: "6px 0" }}>
-                        <span className="spec-label">Rate</span>
-                        <span className="spec-value">{formatIDR(v.pricePerDay)} × {days}d</span>
-                      </div>
-                      <div className="spec-row" style={{ padding: "6px 0", borderBottom: "none" }}>
-                        <span className="spec-label" style={{ color: "var(--ink)", fontWeight: 600 }}>Total</span>
-                        <span
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 16,
-                            fontWeight: 600,
-                            color: "var(--ink)",
-                            flex: 1,
-                          }}
-                        >
-                          {formatIDR(total)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        marginTop: 16,
-                        padding: "10px 12px",
-                        border: "1px solid var(--line)",
-                        background: "var(--hover)",
-                        marginBottom: 16,
-                      }}
-                    >
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--slate)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                        <Icon icon="ph:lock" width={10} style={{ display: "inline", marginRight: 5 }} aria-hidden="true" />
-                        Held in escrow · released on safe return
-                      </span>
-                    </div>
-
-                    <button type="submit" className="btn btn-primary" style={{ width: "100%", height: 44 }}>
-                      Request booking
-                    </button>
-
-                    <p style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--slate)", textAlign: "center", marginTop: 10, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      You won&apos;t be charged yet
-                    </p>
-                  </motion.form>
-                ) : (
-                  <motion.div
-                    key="success"
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    style={{ padding: "28px 20px", textAlign: "center" }}
-                  >
-                    <div
-                      style={{
-                        width: 48,
-                        height: 48,
-                        border: "1px solid var(--ok)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        margin: "0 auto 16px",
-                      }}
-                    >
-                      <Icon icon="ph:check" width={24} style={{ color: "var(--ok)" }} />
-                    </div>
-                    <h3
-                      style={{
-                        fontFamily: "var(--font-display)",
-                        fontSize: 20,
-                        fontWeight: 700,
-                        color: "var(--ink)",
-                        marginBottom: 8,
-                      }}
-                    >
-                      Booking requested
-                    </h3>
-                    <p style={{ color: "var(--slate)", fontSize: 13, lineHeight: 1.6 }}>
-                      Waiting for the owner to confirm. You&apos;ll be notified within 24 hours.
-                    </p>
-                    <div
-                      className="kicker"
-                      style={{ marginTop: 16, color: "var(--accent)" }}
-                    >
-                      {formatIDR(total)} · {days} day{days > 1 ? "s" : ""}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+            <div style={{ position: "sticky", top: 80 }}>
+              <BookingCard
+                listingCode={vehicle.listingCode}
+                pricePerDay={vehicle.pricePerDay}
+                todayMin={todayMin}
+                viewerState={viewerState}
+              />
             </div>
           </div>
         </div>
