@@ -205,12 +205,12 @@ describe("K10: Documents upload and retrieval", () => {
     expect(doc?.renterID).toBeNull();
   });
 
-  it("A5: KTP alone leaves rentee verificationStatus Unverified (SIM still missing)", async () => {
+  it("A5: KTP alone leaves rentee verificationStatus Pending (SIM still missing)", async () => {
     const rentee = await db.rentee.findUnique({
       where: { renteeID },
       select: { verificationStatus: true },
     });
-    expect(rentee?.verificationStatus).toBe("Unverified");
+    expect(rentee?.verificationStatus).toBe("Pending");
   });
 
   it("A5: SIM upload completes the required set and sets rentee to Pending", async () => {
