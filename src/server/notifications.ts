@@ -20,7 +20,11 @@ export type NotificationType =
   | "vehicle_rejected"
   | "dispute_opened"
   | "dispute_resolved"
-  | "dispute_rejected";
+  | "dispute_rejected"
+  | "booking_cancelled"
+  | "booking_approved"
+  | "booking_rejected"
+  | "booking_awaiting_approval";
 
 // ---------------------------------------------------------------------------
 // Tx — a Prisma transaction client or the main db instance
