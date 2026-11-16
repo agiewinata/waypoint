@@ -32,7 +32,15 @@ export default async function AdminVehicleReviewPage({
     { label: "Type",       value: vehicle.type },
     { label: "City",       value: vehicle.city },
     { label: "Price",      value: `${formatIDR(vehicle.pricePerDay)}/day` },
-    { label: "Owner",      value: vehicle.ownerName },
+    {
+      label: "Owner",
+      value: (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {vehicle.ownerName}
+          <StatusTag status={vehicle.ownerVerificationStatus} />
+        </span>
+      ),
+    },
     { label: "Submitted",  value: formatDate(vehicle.createdAt) },
   ];
 
