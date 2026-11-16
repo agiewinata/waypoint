@@ -130,15 +130,17 @@ export default async function MyCarsPage() {
                   </div>
 
                   {items.map((car, i) => (
-                    <div
+                    <Link
                       key={car.listingCode}
-                      className="row-hover"
+                      href={`/dashboard/owner/cars/${car.listingCode}`}
+                      className="row-hover no-underline"
                       style={{
                         display: "grid",
                         gridTemplateColumns: "80px 2fr 100px 120px 100px",
                         padding: "14px 16px",
                         borderBottom: i < items.length - 1 ? "1px solid var(--line)" : "none",
                         alignItems: "center",
+                        color: "var(--ink)",
                       }}
                     >
                       <span
@@ -171,7 +173,7 @@ export default async function MyCarsPage() {
                         {formatIDR(car.pricePerDay)}
                       </span>
                       <StatusTag status={car.status} />
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

@@ -89,11 +89,17 @@ export function VehicleCard({ vehicle, showStatus = false, status }: VehicleCard
             <span className="kicker">{vehicle.type}</span>
           </div>
 
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="kicker" style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <Icon icon="ph:user" width={11} aria-hidden="true" />
               {vehicle.ownerFirstName}
             </span>
+            {vehicle.ownerVerified && (
+              <span className="tag" style={{ color: "var(--ok)" }}>
+                <span className="dot" style={{ background: "var(--ok)" }} aria-hidden="true" />
+                Verified owner
+              </span>
+            )}
           </div>
 
           {/* Divider */}

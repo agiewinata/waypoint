@@ -145,6 +145,12 @@ export default async function VehicleDetailPage({ params }: VehicleDetailPagePro
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                     <span className="kicker">Owner</span>
+                    {vehicle.ownerVerified && (
+                      <span className="tag" style={{ color: "var(--ok)" }}>
+                        <span className="dot" style={{ background: "var(--ok)" }} aria-hidden="true" />
+                        Verified owner
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
