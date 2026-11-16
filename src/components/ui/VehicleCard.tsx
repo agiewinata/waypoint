@@ -4,39 +4,23 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Icon } from "@iconify/react";
 import { StatusTag } from "./StatusTag";
+import { formatIDR } from "@/lib/format";
+import type { PublicVehicle } from "@/server/vehicles";
 
 interface VehicleCardProps {
-  id: string;
-  listingCode: string;
-  make: string;
-  model: string;
-  year: number;
-  type: string;
-  city: string;
-  pricePerDay: number;
-  status?: string;
+  vehicle: PublicVehicle;
   showStatus?: boolean;
+  status?: string;
 }
 
-export function VehicleCard({
-  id,
-  listingCode,
-  make,
-  model,
-  year,
-  type,
-  city,
-  pricePerDay,
-  status,
-  showStatus = false,
-}: VehicleCardProps) {
+export function VehicleCard({ vehicle, showStatus = false, status }: VehicleCardProps) {
   return (
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15, ease: "easeOut" }}
     >
       <Link
-        href={`/vehicles/${id}`}
+        href={`/vehicles/${vehicle.listingCode}`}
         className="card row-hover block no-underline"
         style={{ overflow: "hidden" }}
       >
@@ -66,7 +50,7 @@ export function VehicleCard({
               border: "1px solid var(--line)",
             }}
           >
-            {listingCode}
+            {vehicle.listingCode}
           </span>
           {showStatus && status && (
             <span style={{ position: "absolute", top: 10, right: 10 }}>
@@ -87,7 +71,7 @@ export function VehicleCard({
               marginBottom: 2,
             }}
           >
-            {year} {make} {model}
+            {vehicle.year} {vehicle.make} {vehicle.model}
           </div>
 
           <div
@@ -100,9 +84,16 @@ export function VehicleCard({
           >
             <span className="kicker" style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <Icon icon="ph:map-pin" width={11} aria-hidden="true" />
-              {city}
+              {vehicle.city}
             </span>
-            <span className="kicker">{type}</span>
+            <span className="kicker">{vehicle.type}</span>
+          </div>
+
+          <div style={{ marginTop: 6 }}>
+            <span className="kicker" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Icon icon="ph:user" width={11} aria-hidden="true" />
+              {vehicle.ownerFirstName}
+            </span>
           </div>
 
           {/* Divider */}
@@ -115,7 +106,7 @@ export function VehicleCard({
                 color: "var(--ink)",
               }}
             >
-              RP {pricePerDay.toLocaleString("id-ID")}
+              {formatIDR(vehicle.pricePerDay)}
             </span>
             <span className="kicker" style={{ marginLeft: 4 }}>/ day</span>
           </div>
