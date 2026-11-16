@@ -15,7 +15,7 @@ export const POST = route(async (req) => {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
     if (err instanceof ProfileMissingError) {
-      throw new HttpError(400, err.message);
+      throw new HttpError(400, "Complete onboarding first");
     }
     throw err;
   }

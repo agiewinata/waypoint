@@ -4,7 +4,7 @@ import { HttpError } from "@/server/http";
 import { notify } from "@/server/notifications";
 import { todayJakarta, parseDateOnly } from "@/lib/dates";
 import { toRupiah } from "@/lib/money";
-import { validateBookingDates } from "@/lib/validation/booking";
+import { validateBookingDates, BookingDateError } from "@/lib/validation/booking";
 import type { Actor } from "@/server/authz";
 
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ export async function createBooking(
   try {
     validateBookingDates(startDateObj, endDateObj);
   } catch (err) {
-    if (err instanceof Error) throw new HttpError(400, err.message);
+    if (err instanceof BookingDateError) throw new HttpError(400, err.message);
     throw err;
   }
 

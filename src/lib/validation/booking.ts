@@ -25,6 +25,13 @@ export const BookingAction = z.object({
 });
 export type BookingAction = z.infer<typeof BookingAction>;
 
+export class BookingDateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BookingDateError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Server-side date range validation (pure, no DB).
 // Called by the booking service after parsing string inputs to Dates.
@@ -39,17 +46,17 @@ export function validateBookingDates(
   today = todayJakarta()
 ): void {
   if (endDate <= startDate) {
-    throw new Error("End date must be after start date");
+    throw new BookingDateError("End date must be after start date");
   }
   if (startDate < today) {
-    throw new Error("Start date cannot be in the past");
+    throw new BookingDateError("Start date cannot be in the past");
   }
   const nights = nightsBetween(startDate, endDate);
   if (nights > 30) {
-    throw new Error("Booking cannot exceed 30 nights");
+    throw new BookingDateError("Booking cannot exceed 30 nights");
   }
   const maxAhead = new Date(today.getTime() + 180 * 86_400_000);
   if (startDate > maxAhead) {
-    throw new Error("Start date cannot be more than 180 days in the future");
+    throw new BookingDateError("Start date cannot be more than 180 days in the future");
   }
 }

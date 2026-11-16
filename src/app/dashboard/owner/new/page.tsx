@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/server/session";
-import { getProfilesForUser, enableListing } from "@/server/profiles";
+import { getProfilesForUser } from "@/server/profiles";
+import { EnableListingConfirm } from "./EnableListingConfirm";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,10 @@ export default async function EnableListingPage() {
   if (!profile) redirect("/onboarding");
   if (renter) redirect("/dashboard/owner");
 
-  await enableListing(session.user.id);
-  redirect("/dashboard/owner");
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
+      <SiteHeader />
+      <EnableListingConfirm />
+    </div>
+  );
 }

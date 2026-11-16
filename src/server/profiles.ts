@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import type { ProfileInput } from "@/lib/validation/profile";
 
 export class ProfileExistsError extends Error {
   constructor() {
@@ -93,45 +92,6 @@ export async function enableRenting(userId: string) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Legacy helpers — kept for backward compatibility with existing API routes
-// ---------------------------------------------------------------------------
-
-export async function createRenterProfile(userId: string, input: ProfileInput) {
-  try {
-    return await db.renter.create({
-      data: {
-        userID: userId,
-        name: input.name,
-        email: input.email ?? "",
-        phone: input.phone,
-        address: input.address,
-        verificationStatus: "Unverified",
-      },
-    });
-  } catch (err: unknown) {
-    if (isPrismaUniqueError(err)) throw new ProfileExistsError();
-    throw err;
-  }
-}
-
-export async function createRenteeProfile(userId: string, input: ProfileInput) {
-  try {
-    return await db.rentee.create({
-      data: {
-        userID: userId,
-        name: input.name,
-        email: input.email ?? "",
-        phone: input.phone,
-        address: input.address,
-        verificationStatus: "Unverified",
-      },
-    });
-  } catch (err: unknown) {
-    if (isPrismaUniqueError(err)) throw new ProfileExistsError();
-    throw err;
-  }
-}
 
 function isPrismaUniqueError(err: unknown): boolean {
   return (

@@ -600,9 +600,10 @@ describe("K7 · Owner page guard: user without Owner profile is redirected", () 
 
   beforeAll(async () => {
     if (!serverUp) return;
-    // Sign up a user but do NOT create an owner profile
+    // Sign up a user with a shared profile but no owner role
     const user = await newUser();
     userWithoutOwnerUserId = user.userId;
+    await setupProfile(user.jar);
     userWithoutOwnerJar = user.jar;
   });
 

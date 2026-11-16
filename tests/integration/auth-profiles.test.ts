@@ -81,34 +81,53 @@ describe("Sign up, session, and profile creation", () => {
     expect((body?.user as Record<string,unknown>)?.email).toBe(email);
   });
 
-  it("POST /api/profile/owner returns 201", async () => {
+  it("POST /api/onboarding returns 201", async () => {
     if (skip()) return;
-    const res = await apiFetch(`${BASE}/api/profile/owner`, {
+    const res = await apiFetch(`${BASE}/api/onboarding`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: jar.header() },
-      body: JSON.stringify({ name: "Test Owner", phone: "+6281234567890", address: "Jl. Test No. 1" }),
+      body: JSON.stringify({ name: "Test User", phone: "+6281234567890", address: "Jl. Test No. 1" }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+  });
+
+  it("POST /api/onboarding again returns 200 (idempotent)", async () => {
+    if (skip()) return;
+    const res = await apiFetch(`${BASE}/api/onboarding`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: jar.header() },
+      body: JSON.stringify({ name: "Test User", phone: "+6281234567890", address: "Jl. Test No. 1" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /api/profile/enable-listing returns 201", async () => {
+    if (skip()) return;
+    const res = await apiFetch(`${BASE}/api/profile/enable-listing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: jar.header() },
     });
     expect(res.status).toBe(201);
     const body = await res.json() as Record<string, unknown>;
     expect(body.id).toBeTruthy();
   });
 
-  it("POST /api/profile/owner again returns 409", async () => {
+  it("POST /api/profile/enable-listing again returns 200 (idempotent)", async () => {
     if (skip()) return;
-    const res = await apiFetch(`${BASE}/api/profile/owner`, {
+    const res = await apiFetch(`${BASE}/api/profile/enable-listing`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: jar.header() },
-      body: JSON.stringify({ name: "Test Owner", phone: "+6281234567890", address: "Jl. Test No. 1" }),
     });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
   });
 
-  it("POST /api/profile/customer returns 201", async () => {
+  it("POST /api/profile/enable-renting returns 201", async () => {
     if (skip()) return;
-    const res = await apiFetch(`${BASE}/api/profile/customer`, {
+    const res = await apiFetch(`${BASE}/api/profile/enable-renting`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: jar.header() },
-      body: JSON.stringify({ name: "Test Customer", phone: "+6289876543210", address: "Jl. Test No. 2" }),
     });
     expect(res.status).toBe(201);
   });
@@ -124,27 +143,26 @@ describe("Sign up, session, and profile creation", () => {
     });
     jar2.update(r1.headers.get("set-cookie"));
 
-    const res = await apiFetch(`${BASE}/api/profile/owner`, {
+    const res = await apiFetch(`${BASE}/api/onboarding`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: jar2.header() },
       body: JSON.stringify({
-        name: "Injected Owner",
+        name: "Injected User",
         phone: "+6281111111111",
         address: "Jl. Fake No. 1",
         userID: "definitely-not-real-user-id-12345",
         verificationStatus: "Verified",
       }),
     });
-    // 201 means the route parsed cleanly (didn't reject on unknown userID field)
-    // and didn't fail with 400 or 500 (which would happen if it tried to use the fake userID)
+    // 201 means the route parsed cleanly using session user ID, not the injected one
     expect(res.status).toBe(201);
   });
 });
 
 describe("Unauthenticated access", () => {
-  it("POST /api/profile/owner without session returns 401", async () => {
+  it("POST /api/onboarding without session returns 401", async () => {
     if (skip()) return;
-    const res = await apiFetch(`${BASE}/api/profile/owner`, {
+    const res = await apiFetch(`${BASE}/api/onboarding`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "No Auth", phone: "+6281234567890", address: "Somewhere" }),
@@ -152,12 +170,20 @@ describe("Unauthenticated access", () => {
     expect(res.status).toBe(401);
   });
 
-  it("POST /api/profile/customer without session returns 401", async () => {
+  it("POST /api/profile/enable-listing without session returns 401", async () => {
     if (skip()) return;
-    const res = await apiFetch(`${BASE}/api/profile/customer`, {
+    const res = await apiFetch(`${BASE}/api/profile/enable-listing`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "No Auth", phone: "+6281234567890", address: "Somewhere" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /api/profile/enable-renting without session returns 401", async () => {
+    if (skip()) return;
+    const res = await apiFetch(`${BASE}/api/profile/enable-renting`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(401);
   });
@@ -176,17 +202,24 @@ describe("Input validation", () => {
     jar.update(r.headers.get("set-cookie"));
   });
 
-  it("invalid phone returns 400 with field errors", async () => {
+  it("invalid phone returns 400", async () => {
     if (skip()) return;
-    const res = await apiFetch(`${BASE}/api/profile/owner`, {
+    const res = await apiFetch(`${BASE}/api/onboarding`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: jar.header() },
       body: JSON.stringify({ name: "Test", phone: "not-a-phone", address: "Somewhere" }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe("Invalid input");
-    expect((body.fields as Record<string,unknown>)?.phone).toBeTruthy();
+  });
+
+  it("malformed JSON returns 400", async () => {
+    if (skip()) return;
+    const res = await apiFetch(`${BASE}/api/onboarding`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: jar.header() },
+      body: "not json at all {{{",
+    });
+    expect(res.status).toBe(400);
   });
 });
 
