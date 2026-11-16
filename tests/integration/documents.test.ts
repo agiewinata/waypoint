@@ -195,7 +195,28 @@ describe("K10: Documents upload and retrieval", () => {
     expect(res.status).toBe(400);
   });
 
-  it("A5: KTP upload sets rentee verificationStatus to Pending", async () => {
+  it("A5: KTP with no as is attached to the Customer (renteeID), not the Owner", async () => {
+    expect(uploadedDocId).toBeTruthy();
+    const doc = await db.document.findUnique({
+      where: { documentID: uploadedDocId },
+      select: { renteeID: true, renterID: true },
+    });
+    expect(doc?.renteeID).toBe(renteeID);
+    expect(doc?.renterID).toBeNull();
+  });
+
+  it("A5: KTP alone leaves rentee verificationStatus Unverified (SIM still missing)", async () => {
+    const rentee = await db.rentee.findUnique({
+      where: { renteeID },
+      select: { verificationStatus: true },
+    });
+    expect(rentee?.verificationStatus).toBe("Unverified");
+  });
+
+  it("A5: SIM upload completes the required set and sets rentee to Pending", async () => {
+    const res = await uploadDoc(customerJar, { type: "SIM" }, makePng());
+    expect(res.status).toBe(201);
+
     const rentee = await db.rentee.findUnique({
       where: { renteeID },
       select: { verificationStatus: true },

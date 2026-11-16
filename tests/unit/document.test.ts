@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { assertDocumentHasExactlyOneParent, sniffMime } from "@/lib/validation/document";
+import { ZodError } from "zod";
+import {
+  assertDocumentHasExactlyOneParent,
+  sniffMime,
+  DocumentUploadFields,
+  resolveDocSubject,
+} from "@/lib/validation/document";
 
 describe("assertDocumentHasExactlyOneParent", () => {
   it("accepts exactly one parent (vehicleVIN)", () => {
@@ -82,5 +88,70 @@ describe("sniffMime", () => {
     // 7 bytes — one short of the 8-byte PNG signature
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a]);
     expect(sniffMime(bytes)).toBeNull();
+  });
+});
+
+describe("DocumentUploadFields — as rules", () => {
+  it("rejects as=owner on STNK", () => {
+    expect(() =>
+      DocumentUploadFields.parse({ type: "STNK", listingCode: "LST-1", as: "owner" })
+    ).toThrow(ZodError);
+  });
+
+  it("rejects as on Insurance", () => {
+    expect(() =>
+      DocumentUploadFields.parse({ type: "Insurance", listingCode: "LST-1", as: "customer" })
+    ).toThrow(ZodError);
+  });
+
+  it("rejects as=customer on BPKB", () => {
+    expect(() => DocumentUploadFields.parse({ type: "BPKB", as: "customer" })).toThrow(ZodError);
+  });
+
+  it("accepts BPKB with no as (defaults to owner)", () => {
+    expect(() => DocumentUploadFields.parse({ type: "BPKB" })).not.toThrow();
+  });
+
+  it("accepts BPKB with as=owner", () => {
+    expect(() => DocumentUploadFields.parse({ type: "BPKB", as: "owner" })).not.toThrow();
+  });
+
+  it("accepts KTP with no as (defaults to customer)", () => {
+    expect(() => DocumentUploadFields.parse({ type: "KTP" })).not.toThrow();
+  });
+
+  it("accepts KTP with as=owner", () => {
+    expect(() => DocumentUploadFields.parse({ type: "KTP", as: "owner" })).not.toThrow();
+  });
+
+  it("rejects listingCode on BPKB", () => {
+    expect(() =>
+      DocumentUploadFields.parse({ type: "BPKB", listingCode: "LST-1" })
+    ).toThrow(ZodError);
+  });
+
+  it("rejects an unknown as value", () => {
+    expect(() => DocumentUploadFields.parse({ type: "KTP", as: "admin" })).toThrow(ZodError);
+  });
+});
+
+describe("resolveDocSubject", () => {
+  it("STNK and Insurance resolve to vehicle", () => {
+    expect(resolveDocSubject({ type: "STNK", listingCode: "LST-1" })).toBe("vehicle");
+    expect(resolveDocSubject({ type: "Insurance", listingCode: "LST-1" })).toBe("vehicle");
+  });
+
+  it("BPKB resolves to owner", () => {
+    expect(resolveDocSubject({ type: "BPKB" })).toBe("owner");
+  });
+
+  it("KTP and SIM resolve to owner only when as=owner", () => {
+    expect(resolveDocSubject({ type: "KTP", as: "owner" })).toBe("owner");
+    expect(resolveDocSubject({ type: "SIM", as: "owner" })).toBe("owner");
+  });
+
+  it("KTP and SIM resolve to customer when as is omitted or customer", () => {
+    expect(resolveDocSubject({ type: "KTP" })).toBe("customer");
+    expect(resolveDocSubject({ type: "SIM", as: "customer" })).toBe("customer");
   });
 });

@@ -416,6 +416,7 @@ describe("AD4 — document rejection sets Rentee to Rejected", () => {
     renteeID = rid;
 
     ktpDocId = await createPendingDoc(renteeID, "KTP");
+    await createPendingDoc(renteeID, "SIM");
   }, 30_000);
 
   it("rejecting KTP sets doc to Rejected and Rentee to Rejected", async () => {
@@ -433,6 +434,151 @@ describe("AD4 — document rejection sets Rentee to Rejected", () => {
 
     const rentee = await db.rentee.findUnique({ where: { renteeID } });
     expect(rentee?.verificationStatus).toBe("Rejected");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AD1 — item shape (subject + holderName)
+// ---------------------------------------------------------------------------
+
+describe("AD1 — verification item shape", () => {
+  let customerUserId: string;
+  let renteeID: string;
+  let ktpDocId: string;
+
+  beforeAll(async () => {
+    if (!serverUp) return;
+
+    const { jar, userId } = await newUser();
+    customerUserId = userId;
+    cleanupIds.push(customerUserId);
+
+    const { renteeID: rid } = await asCustomer(jar);
+    renteeID = rid;
+
+    ktpDocId = await createPendingDoc(renteeID, "KTP");
+  }, 30_000);
+
+  it("Customer KTP item has subject customer and holderName from the user", async () => {
+    if (skip()) return;
+
+    const res = await api(adminJar, "GET", "/api/admin/verifications");
+    expect(res.status).toBe(200);
+    const items = (await res.json()) as {
+      id: string;
+      type: string;
+      subject: string;
+      holderName: string;
+      createdAt: string;
+    }[];
+
+    const item = items.find((i) => i.id === ktpDocId);
+    const user = await db.user.findUnique({
+      where: { id: customerUserId },
+      select: { name: true },
+    });
+    expect(item).toBeDefined();
+    expect(item?.type).toBe("KTP");
+    expect(item?.subject).toBe("customer");
+    expect(item?.holderName).toBe(user?.name);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Customer latest-doc rule — a re-upload after rejection can reach Verified
+// ---------------------------------------------------------------------------
+
+/** Minimal PNG (magic bytes plus one byte) for multipart upload. */
+function makePng(): Uint8Array {
+  return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+}
+
+async function uploadKtpAsCustomer(jar: CookieJar): Promise<Response> {
+  const cookie = [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+  const fd = new FormData();
+  fd.set("type", "KTP");
+  fd.set("file", new Blob([new Uint8Array(makePng())], { type: "image/png" }), "ktp.png");
+  return fetch(`${BASE}/api/documents`, {
+    method: "POST",
+    headers: { Origin: BASE, Cookie: cookie },
+    body: fd,
+  });
+}
+
+describe("AD4 — Customer re-upload after rejection reaches Verified", () => {
+  let customerUserId: string;
+  let customerJar: CookieJar;
+  let renteeID: string;
+  let ktpDocId: string;
+  let simDocId: string;
+
+  beforeAll(async () => {
+    if (!serverUp) return;
+
+    const { jar, userId } = await newUser();
+    customerUserId = userId;
+    customerJar = jar;
+    cleanupIds.push(customerUserId);
+
+    const { renteeID: rid } = await asCustomer(jar);
+    renteeID = rid;
+
+    ktpDocId = await createPendingDoc(renteeID, "KTP");
+    simDocId = await createPendingDoc(renteeID, "SIM");
+  }, 30_000);
+
+  it("rejecting KTP and verifying SIM leaves Rentee Rejected", async () => {
+    if (skip()) return;
+
+    const rejectRes = await api(
+      adminJar,
+      "PATCH",
+      `/api/admin/documents/${ktpDocId}`,
+      { action: "reject" }
+    );
+    expect(rejectRes.status).toBe(200);
+
+    const verifyRes = await api(
+      adminJar,
+      "PATCH",
+      `/api/admin/documents/${simDocId}`,
+      { action: "verify" }
+    );
+    expect(verifyRes.status).toBe(200);
+
+    const rentee = await db.rentee.findUnique({ where: { renteeID } });
+    expect(rentee?.verificationStatus).toBe("Rejected");
+  });
+
+  it("re-uploading KTP returns 201 and sets Rentee to Pending", async () => {
+    if (skip()) return;
+
+    const res = await uploadKtpAsCustomer(customerJar);
+    expect(res.status).toBe(201);
+
+    const rentee = await db.rentee.findUnique({ where: { renteeID } });
+    expect(rentee?.verificationStatus).toBe("Pending");
+  });
+
+  it("verifying the new KTP makes Rentee Verified despite the old Rejected KTP", async () => {
+    if (skip()) return;
+
+    const newKtp = await db.document.findFirst({
+      where: { renteeID, type: "KTP", verificationStatus: "Pending" },
+      select: { documentID: true },
+    });
+    expect(newKtp).not.toBeNull();
+
+    const res = await api(
+      adminJar,
+      "PATCH",
+      `/api/admin/documents/${newKtp!.documentID}`,
+      { action: "verify" }
+    );
+    expect(res.status).toBe(200);
+
+    const rentee = await db.rentee.findUnique({ where: { renteeID } });
+    expect(rentee?.verificationStatus).toBe("Verified");
   });
 });
 
