@@ -189,6 +189,59 @@ describe("Unauthenticated access", () => {
   });
 });
 
+describe("enable before onboarding returns 409", () => {
+  const jar = createCookieJar();
+
+  beforeAll(async () => {
+    if (!serverUp) return;
+    const r = await apiFetch(`${BASE}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `noprofile-${Date.now()}@example.com`, password: "testpassword123", name: "No Profile" }),
+    });
+    jar.update(r.headers.get("set-cookie"));
+  });
+
+  it("enable-listing without onboarding returns 409", async () => {
+    if (skip()) return;
+    const res = await apiFetch(`${BASE}/api/profile/enable-listing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: jar.header() },
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("enable-renting without onboarding returns 409", async () => {
+    if (skip()) return;
+    const res = await apiFetch(`${BASE}/api/profile/enable-renting`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: jar.header() },
+    });
+    expect(res.status).toBe(409);
+  });
+});
+
+describe("missing Origin header returns 403", () => {
+  it("POST /api/onboarding without Origin → 403", async () => {
+    if (skip()) return;
+    const res = await fetch(`${BASE}/api/onboarding`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "No Origin", phone: "+6281234567890", address: "Somewhere" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /api/profile/enable-listing without Origin → 403", async () => {
+    if (skip()) return;
+    const res = await fetch(`${BASE}/api/profile/enable-listing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("Input validation", () => {
   const jar = createCookieJar();
 

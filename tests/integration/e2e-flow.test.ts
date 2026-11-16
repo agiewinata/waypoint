@@ -4,13 +4,13 @@
  * Run with: npm run test:integration (requires dev server at http://localhost:3000)
  *
  * Flow:
- *  1.  Owner signup → create owner profile (POST /api/profile/owner)
+ *  1.  Owner signup → POST /api/onboarding → POST /api/profile/enable-listing
  *  2.  POST /api/vehicles (A3) → listingCode
  *  3.  POST /api/documents (A5) × 2 (STNK + Insurance)
  *  4.  PATCH /api/vehicles/[code] { action: "submit" } (A4)
  *  5.  Admin: PATCH /api/admin/vehicles/[code] { action: "approve" } (AD5)
  *  6.  GET /api/vehicles → vehicle appears in public list (A1)
- *  7.  Customer signup → create customer profile (POST /api/profile/customer)
+ *  7.  Customer signup → POST /api/onboarding → POST /api/profile/enable-renting
  *  8.  POST /api/documents × 2 (KTP + SIM) for customer (A5)
  *  9.  Admin: PATCH /api/admin/documents/[ktp_id] { action: "verify" } × 2 (AD4)
  * 10.  POST /api/bookings (B2) with locationConsent: true

@@ -3,7 +3,23 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function EnableRentingConfirm() {
+interface EnableRoleConfirmProps {
+  endpoint: string;
+  redirectTo: string;
+  kicker: string;
+  title: string;
+  description: string;
+  buttonLabel: string;
+}
+
+export function EnableRoleConfirm({
+  endpoint,
+  redirectTo,
+  kicker,
+  title,
+  description,
+  buttonLabel,
+}: EnableRoleConfirmProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -12,15 +28,15 @@ export function EnableRentingConfirm() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/profile/enable-renting", {
+      const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Origin: window.location.origin },
+        headers: { "Content-Type": "application/json" },
       });
       if (res.ok) {
-        router.push("/dashboard/customer");
+        router.push(redirectTo);
       } else {
         const body = (await res.json()) as { error?: string };
-        setError(body.error ?? "Failed to enable renting");
+        setError(body.error ?? "An error occurred");
         setLoading(false);
       }
     } catch {
@@ -41,7 +57,7 @@ export function EnableRentingConfirm() {
     >
       <div style={{ maxWidth: 480, width: "100%" }}>
         <div className="kicker" style={{ marginBottom: 8 }}>
-          Customer capability
+          {kicker}
         </div>
         <h1
           style={{
@@ -53,7 +69,7 @@ export function EnableRentingConfirm() {
             marginBottom: 16,
           }}
         >
-          Enable vehicle renting
+          {title}
         </h1>
         <p
           style={{
@@ -64,8 +80,7 @@ export function EnableRentingConfirm() {
             marginBottom: 32,
           }}
         >
-          This will activate the Customer dashboard so you can browse and book
-          vehicles. Your profile details will be used for all bookings.
+          {description}
         </p>
 
         {error && (
@@ -91,12 +106,18 @@ export function EnableRentingConfirm() {
             className="btn btn-primary"
             style={{ flex: 1, height: 44 }}
           >
-            {loading ? "Enabling…" : "Enable renting"}
+            {loading ? "Enabling…" : buttonLabel}
           </button>
           <a
             href="/dashboard"
             className="btn btn-ghost"
-            style={{ flex: 1, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{
+              flex: 1,
+              height: 44,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
             Cancel
           </a>

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { isPrismaError } from "@/server/http";
 
 export class ProfileExistsError extends Error {
   constructor() {
@@ -37,7 +38,7 @@ export async function createProfile(
       db.profile.create({ data: { userID: userId, phone, address } }),
     ]);
   } catch (err: unknown) {
-    if (isPrismaUniqueError(err)) throw new ProfileExistsError();
+    if (isPrismaError(err, "P2002")) throw new ProfileExistsError();
     throw err;
   }
 }
@@ -62,7 +63,7 @@ export async function enableListing(userId: string) {
       },
     });
   } catch (err: unknown) {
-    if (isPrismaUniqueError(err)) throw new ProfileExistsError();
+    if (isPrismaError(err, "P2002")) throw new ProfileExistsError();
     throw err;
   }
 }
@@ -87,17 +88,7 @@ export async function enableRenting(userId: string) {
       },
     });
   } catch (err: unknown) {
-    if (isPrismaUniqueError(err)) throw new ProfileExistsError();
+    if (isPrismaError(err, "P2002")) throw new ProfileExistsError();
     throw err;
   }
-}
-
-
-function isPrismaUniqueError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code: unknown }).code === "P2002"
-  );
 }

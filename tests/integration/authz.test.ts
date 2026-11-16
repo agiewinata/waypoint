@@ -531,16 +531,18 @@ describe("K6 · Non-admin GET /dashboard/admin → 404", () => {
     if (nonAdminUserId) await cleanup(nonAdminUserId);
   });
 
-  // Next.js App Router notFound() also uses RSC streaming (HTTP 200 externally);
-  // admin API security (K5) is the real boundary — admin page guard tested via
-  // the customer agent's E2E walkthrough.
-  it.skip("non-admin GET /dashboard/admin → 404 (requireAdminPage calls notFound())", async () => {
+  // Next.js App Router notFound() uses RSC streaming (HTTP 200 externally);
+  // the guard is verified by checking the response body has no admin queue markup.
+  it("non-admin GET /dashboard/admin: body has no admin queue markup", async () => {
     if (skip()) return;
     const res = await fetch(`${BASE}/dashboard/admin`, {
       headers: { Cookie: [...nonAdminJar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") },
-      redirect: "manual",
     });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // Admin dashboard contains "Verification Queue" / "Verifications" — 404 page does not
+    expect(body).not.toContain("Verification Queue");
+    expect(body).not.toContain("verifications");
   });
 });
 
@@ -612,18 +614,16 @@ describe("K7 · Owner page guard: user without Owner profile is redirected", () 
   });
 
   // Next.js App Router redirects from server components are embedded in the RSC stream
-  // and appear as HTTP 200 from outside. This redirect is enforced via Next.js
-  // client-side navigation and is covered by the customer agent's E2E walkthrough.
-  it.skip("/dashboard/owner → 307 to /dashboard/owner/new for user without Owner profile", async () => {
+  // (HTTP 200 externally). The redirect instruction is visible in the RSC body.
+  it("/dashboard/owner RSC body contains redirect to /dashboard/owner/new", async () => {
     if (skip()) return;
     const cookieStr = [...userWithoutOwnerJar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
     const res = await fetch(`${BASE}/dashboard/owner`, {
       headers: { Cookie: cookieStr },
-      redirect: "manual",
     });
-    expect(res.status).toBe(307);
-    const location = res.headers.get("location") ?? "";
-    expect(location).toContain("/dashboard/owner/new");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("/dashboard/owner/new");
   });
 });
 

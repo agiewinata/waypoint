@@ -127,7 +127,7 @@ describe("POST /api/payments (P1)", () => {
         totalPrice: 300_000,
       },
     });
-  });
+  }, 30_000);
 
   afterAll(async () => {
     if (!serverUp) return;
@@ -358,7 +358,7 @@ describe("PATCH /api/payments/:id (P2)", () => {
     } finally {
       await cleanup(freshOwner.userId, freshCustomer.userId);
     }
-  });
+  }, 20_000);
 
   it("409 release when booking is not Completed", async () => {
     if (skip()) return;

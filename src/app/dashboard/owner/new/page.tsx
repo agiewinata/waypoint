@@ -1,24 +1,27 @@
 import { redirect } from "next/navigation";
-import { requireSession } from "@/server/session";
-import { getProfilesForUser } from "@/server/profiles";
-import { EnableListingConfirm } from "./EnableListingConfirm";
+import { requireUserPage } from "@/server/authz";
+import { EnableRoleConfirm } from "@/components/profile/EnableRoleConfirm";
 import { SiteHeader } from "@/components/ui/SiteHeader";
 
 export const dynamic = "force-dynamic";
 
 export default async function EnableListingPage() {
-  const session = await requireSession();
-  if (!session) redirect("/auth/signin");
+  const actor = await requireUserPage();
 
-  const { profile, renter } = await getProfilesForUser(session.user.id);
-
-  if (!profile) redirect("/onboarding");
-  if (renter) redirect("/dashboard/owner");
+  if (!actor.profile) redirect("/onboarding");
+  if (actor.renter) redirect("/dashboard/owner");
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
       <SiteHeader />
-      <EnableListingConfirm />
+      <EnableRoleConfirm
+        endpoint="/api/profile/enable-listing"
+        redirectTo="/dashboard/owner"
+        kicker="Owner capability"
+        title="Enable vehicle listing"
+        description="This will activate the Owner dashboard so you can list your vehicles for rent. Your profile details will be used for all listings."
+        buttonLabel="Enable listing"
+      />
     </div>
   );
 }
