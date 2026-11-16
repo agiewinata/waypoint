@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
+import { links } from "@/lib/links";
+import { toRupiah } from "@/lib/money";
 import { HttpError } from "@/server/http";
 import { notify } from "@/server/notifications";
+import { recomputeRenteeStatus, recomputeRenterStatus } from "@/server/verification";
+import type { Prisma } from "@/generated/prisma/client";
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -9,8 +13,8 @@ import { notify } from "@/server/notifications";
 export interface VerificationItem {
   id: string;
   type: string;
-  renteeID: string;
-  customerName: string;
+  subject: "owner" | "customer";
+  holderName: string;
   createdAt: string;
 }
 
@@ -41,6 +45,7 @@ export interface AdminStats {
   pendingVehicles: number;
   openDisputes: number;
   activeBookings: number;
+  pendingBookingApprovals: number;
 }
 
 export interface VehicleReviewDoc {
@@ -62,6 +67,7 @@ export interface VehicleReviewDetail {
   status: string;
   createdAt: string;
   ownerName: string;
+  ownerVerificationStatus: string;
   docs: VehicleReviewDoc[];
 }
 
@@ -87,45 +93,59 @@ export interface DisputeReviewDetail {
 // Queries
 // ---------------------------------------------------------------------------
 
-export async function getAdminStats(): Promise<AdminStats> {
-  const [pendingVerifications, pendingVehicles, openDisputes, activeBookings] =
-    await Promise.all([
-      db.document.count({
-        where: {
-          verificationStatus: "Pending",
-          renteeID: { not: null },
-          type: { in: ["KTP", "SIM"] },
-        },
-      }),
-      db.vehicle.count({ where: { status: "Pending" } }),
-      db.dispute.count({ where: { status: { in: ["Open", "UnderReview"] } } }),
-      db.booking.count({ where: { status: "Active" } }),
-    ]);
+/** Pending identity documents attached to a Customer (Rentee) or an Owner (Renter). */
+const PENDING_IDENTITY_DOCS: Prisma.DocumentWhereInput = {
+  verificationStatus: "Pending",
+  OR: [{ renteeID: { not: null } }, { renterID: { not: null } }],
+  type: { in: ["KTP", "SIM", "BPKB"] },
+};
 
-  return { pendingVerifications, pendingVehicles, openDisputes, activeBookings };
+export async function getAdminStats(): Promise<AdminStats> {
+  const [
+    pendingVerifications,
+    pendingVehicles,
+    openDisputes,
+    activeBookings,
+    pendingBookingApprovals,
+  ] = await Promise.all([
+    db.document.count({ where: PENDING_IDENTITY_DOCS }),
+    db.vehicle.count({ where: { status: "Pending" } }),
+    db.dispute.count({ where: { status: { in: ["Open", "UnderReview"] } } }),
+    db.booking.count({ where: { status: "Active" } }),
+    db.booking.count({ where: { status: "Confirmed", approvedByAdminID: null } }),
+  ]);
+
+  return {
+    pendingVerifications,
+    pendingVehicles,
+    openDisputes,
+    activeBookings,
+    pendingBookingApprovals,
+  };
 }
 
-/** Pending KTP/SIM documents belonging to a Rentee, oldest first. */
+/** Pending identity documents (Customer and Owner), oldest first. */
 export async function listPendingVerifications(): Promise<VerificationItem[]> {
   const docs = await db.document.findMany({
-    where: {
-      verificationStatus: "Pending",
-      renteeID: { not: null },
-      type: { in: ["KTP", "SIM"] },
-    },
+    where: PENDING_IDENTITY_DOCS,
     orderBy: { createdAt: "asc" },
     include: {
-      rentee: { select: { name: true } },
+      rentee: { select: { name: true, user: { select: { name: true } } } },
+      renter: { select: { name: true, user: { select: { name: true } } } },
     },
   });
 
-  return docs.map((doc) => ({
-    id: doc.documentID,
-    type: doc.type,
-    renteeID: doc.renteeID!,
-    customerName: doc.rentee?.name ?? "Unknown",
-    createdAt: doc.createdAt.toISOString(),
-  }));
+  return docs.map((doc) => {
+    const subject = doc.renterID !== null ? "owner" : "customer";
+    const holder = doc.renterID !== null ? doc.renter : doc.rentee;
+    return {
+      id: doc.documentID,
+      type: doc.type,
+      subject,
+      holderName: holder?.user?.name ?? holder?.name ?? "Unknown",
+      createdAt: doc.createdAt.toISOString(),
+    };
+  });
 }
 
 /** Vehicles awaiting admin approval, oldest first. */
@@ -187,7 +207,7 @@ export async function getVehicleForReview(
   const vehicle = await db.vehicle.findUnique({
     where: { listingCode },
     include: {
-      renter: { select: { name: true } },
+      renter: { select: { name: true, verificationStatus: true } },
       documents: {
         select: { documentID: true, type: true, verificationStatus: true },
       },
@@ -205,10 +225,11 @@ export async function getVehicleForReview(
     plateNumber: vehicle.plateNumber,
     type: vehicle.type,
     city: vehicle.city,
-    pricePerDay: Number(vehicle.pricePerDay),
+    pricePerDay: toRupiah(vehicle.pricePerDay),
     status: vehicle.status,
     createdAt: vehicle.createdAt.toISOString(),
     ownerName: vehicle.renter.name,
+    ownerVerificationStatus: vehicle.renter.verificationStatus,
     docs: vehicle.documents.map((d) => ({
       documentID: d.documentID,
       type: d.type,
@@ -268,8 +289,8 @@ export async function getDisputeForReview(
 // ---------------------------------------------------------------------------
 
 /**
- * Verify or reject a document. If the document belongs to a Rentee,
- * recomputes the Rentee's overall verificationStatus based on their KTP + SIM.
+ * Verify or reject a document. Recomputes the parent's verificationStatus
+ * (Customer or Owner) from the latest document of each required type.
  * Notifies the document owner on completion.
  */
 export async function verifyDocument(
@@ -304,38 +325,7 @@ export async function verifyDocument(
     });
 
     if (doc.renteeID) {
-      // Recompute rentee verification status from all their KTP + SIM docs
-      const allDocs = await tx.document.findMany({
-        where: { renteeID: doc.renteeID, type: { in: ["KTP", "SIM"] } },
-        select: { documentID: true, type: true, verificationStatus: true },
-      });
-
-      // Apply the update we just made in memory so the check is consistent
-      const updatedDocs = allDocs.map((d) =>
-        d.documentID === documentId
-          ? { ...d, verificationStatus: newStatus }
-          : d
-      );
-
-      const hasRejected = updatedDocs.some(
-        (d) => d.verificationStatus === "Rejected"
-      );
-      const ktp = updatedDocs.find((d) => d.type === "KTP");
-      const sim = updatedDocs.find((d) => d.type === "SIM");
-      const bothVerified =
-        ktp?.verificationStatus === "Verified" &&
-        sim?.verificationStatus === "Verified";
-
-      const renteeStatus = bothVerified
-        ? "Verified"
-        : hasRejected
-          ? "Rejected"
-          : "Pending";
-
-      await tx.rentee.update({
-        where: { renteeID: doc.renteeID },
-        data: { verificationStatus: renteeStatus },
-      });
+      await recomputeRenteeStatus(tx, doc.renteeID);
 
       await notify(tx, {
         userID: doc.rentee?.userID,
@@ -345,9 +335,11 @@ export async function verifyDocument(
           action === "verify"
             ? `Your ${doc.type} document has been verified.`
             : `Your ${doc.type} document has been rejected. Please resubmit.`,
-        href: "/dashboard/customer/documents",
+        href: links.customerVerify(),
       });
     } else if (doc.renterID) {
+      await recomputeRenterStatus(tx, doc.renterID);
+
       await notify(tx, {
         userID: doc.renter?.userID,
         type: action === "verify" ? "document_verified" : "document_rejected",
@@ -356,7 +348,7 @@ export async function verifyDocument(
           action === "verify"
             ? `Your ${doc.type} document has been verified.`
             : `Your ${doc.type} document has been rejected. Please resubmit.`,
-        href: "/dashboard/owner/documents",
+        href: links.ownerVerify(),
       });
     }
   });
@@ -389,9 +381,13 @@ export async function approveVehicle(
     throw new HttpError(409, "Vehicle is not in Pending status");
   }
 
-  const hasStnk = vehicle.documents.some((d) => d.type === "STNK");
-  const hasInsurance = vehicle.documents.some((d) => d.type === "Insurance");
-  if (!hasStnk || !hasInsurance) {
+  const hasActiveDoc = (type: "STNK" | "Insurance") =>
+    vehicle.documents.some(
+      (d) =>
+        d.type === type &&
+        (d.verificationStatus === "Pending" || d.verificationStatus === "Verified")
+    );
+  if (!hasActiveDoc("STNK") || !hasActiveDoc("Insurance")) {
     throw new HttpError(
       409,
       "Vehicle is missing required STNK or Insurance document"
@@ -438,7 +434,7 @@ export async function approveVehicle(
         action === "approve"
           ? `Your vehicle ${vehicle.make} ${vehicle.model} (${listingCode}) has been approved and is now listed.`
           : `Your vehicle ${vehicle.make} ${vehicle.model} (${listingCode}) has been rejected.`,
-      href: `/dashboard/owner/vehicles/${listingCode}`,
+      href: links.ownerCar(listingCode),
     });
   });
 
@@ -527,14 +523,14 @@ export async function resolveDispute(
         type,
         title,
         body,
-        href: `/dashboard/customer/bookings/${dispute.bookingID}`,
+        href: links.customerTrip(dispute.bookingID),
       });
       await notify(tx, {
         userID: ownerUserID,
         type,
         title,
         body,
-        href: `/dashboard/owner/bookings/${dispute.bookingID}`,
+        href: links.ownerBooking(dispute.bookingID),
       });
     }
   });

@@ -191,7 +191,7 @@ export default async function AdminConsolePage() {
                             gap: 8,
                           }}
                         >
-                          <span style={{ fontSize: 13, color: "var(--ink)" }}>{v.customerName}</span>
+                          <span style={{ fontSize: 13, color: "var(--ink)" }}>{v.holderName}</span>
                           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>
                             {v.type}
                           </span>
