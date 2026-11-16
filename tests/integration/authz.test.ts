@@ -17,6 +17,7 @@ import {
   newUser,
   asOwner,
   asCustomer,
+  asAdmin,
   setupProfile,
   createApprovedVehicle,
   verifyCustomer,
@@ -177,6 +178,36 @@ describe("K5 · 401 sweep — no session", () => {
     const res = await api(newJar(), "PATCH", "/api/admin/disputes/fake-id", { action: "review" });
     expect(res.status).toBe(401);
   });
+
+  it("GET /api/admin/bookings → 401", async () => {
+    if (skip()) return;
+    const res = await api(newJar(), "GET", "/api/admin/bookings");
+    expect(res.status).toBe(401);
+  });
+
+  it("PATCH /api/admin/bookings/fake-id (with Origin, no session) → 401", async () => {
+    if (skip()) return;
+    const res = await api(newJar(), "PATCH", "/api/admin/bookings/fake-id", { action: "approve" });
+    expect(res.status).toBe(401);
+  });
+
+  it("PATCH /api/profile (with Origin, no session) → 401", async () => {
+    if (skip()) return;
+    const res = await api(newJar(), "PATCH", "/api/profile", { name: "X" });
+    expect(res.status).toBe(401);
+  });
+
+  it("PATCH /api/vehicles/WP-FAKE01 (with Origin, no session) → 401", async () => {
+    if (skip()) return;
+    const res = await api(newJar(), "PATCH", "/api/vehicles/WP-FAKE01", { action: "update", make: "X" });
+    expect(res.status).toBe(401);
+  });
+
+  it("PATCH /api/bookings/fake-id cancel (with Origin, no session) → 401", async () => {
+    if (skip()) return;
+    const res = await api(newJar(), "PATCH", "/api/bookings/fake-id", { action: "cancel" });
+    expect(res.status).toBe(401);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -230,6 +261,46 @@ describe("K5 · 403 without Origin header (non-GET)", () => {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "approve" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH /api/admin/bookings/fake-id without Origin → 403", async () => {
+    if (skip()) return;
+    const res = await fetch(`${BASE}/api/admin/bookings/fake-id`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "approve" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH /api/profile without Origin → 403", async () => {
+    if (skip()) return;
+    const res = await fetch(`${BASE}/api/profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "X" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH /api/vehicles/WP-FAKE01 without Origin → 403", async () => {
+    if (skip()) return;
+    const res = await fetch(`${BASE}/api/vehicles/WP-FAKE01`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", make: "X" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH /api/bookings/fake-id cancel without Origin → 403", async () => {
+    if (skip()) return;
+    const res = await fetch(`${BASE}/api/bookings/fake-id`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
     });
     expect(res.status).toBe(403);
   });
@@ -314,6 +385,49 @@ describe("K6 · Role checks — customer-only user gets 403 on owner/admin route
     if (skip()) return;
     const res = await api(customerOnlyJar, "PATCH", "/api/admin/documents/fake-id", {
       action: "verify",
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /api/admin/bookings → 403 for customer-only user", async () => {
+    if (skip()) return;
+    const res = await api(customerOnlyJar, "GET", "/api/admin/bookings");
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH /api/admin/bookings/fake-id (approve) → 403 for customer-only user", async () => {
+    if (skip()) return;
+    const res = await api(customerOnlyJar, "PATCH", "/api/admin/bookings/fake-id", {
+      action: "approve",
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K6: Role checks — owner-only user gets 403 on customer actions
+// ---------------------------------------------------------------------------
+
+describe("K6 · Role checks — owner-only user gets 403 on customer actions", () => {
+  let ownerOnlyUserId: string;
+  let ownerOnlyJar: CookieJar;
+
+  beforeAll(async () => {
+    if (!serverUp) return;
+    const user = await newUser();
+    ownerOnlyUserId = user.userId;
+    await asOwner(user.jar);
+    ownerOnlyJar = user.jar;
+  });
+
+  afterAll(async () => {
+    if (ownerOnlyUserId) await cleanup(ownerOnlyUserId);
+  });
+
+  it("PATCH /api/bookings/fake-id (cancel) → 403 for owner-only user", async () => {
+    if (skip()) return;
+    const res = await api(ownerOnlyJar, "PATCH", "/api/bookings/fake-id", {
+      action: "cancel",
     });
     expect(res.status).toBe(403);
   });
@@ -634,6 +748,7 @@ describe("K7 · Owner page guard: user without Owner profile is redirected", () 
 
 describe("K8 · Mass assignment protection", () => {
   const cleanupIds: string[] = [];
+  let ownerJar: CookieJar;
   let customerJar: CookieJar;
   let renteeID: string;
   let listingCode: string;
@@ -648,8 +763,9 @@ describe("K8 · Mass assignment protection", () => {
     // Owner setup
     const ownerResult = await newUser();
     cleanupIds.push(ownerResult.userId);
-    const { renterID } = await asOwner(ownerResult.jar);
-    const vehicle = await createApprovedVehicle(renterID, { pricePerDay });
+    const owner = await asOwner(ownerResult.jar);
+    ownerJar = owner.jar;
+    const vehicle = await createApprovedVehicle(owner.renterID, { pricePerDay });
     listingCode = vehicle.listingCode;
 
     // Customer setup (verified for payment test)
@@ -737,5 +853,139 @@ describe("K8 · Mass assignment protection", () => {
     expect(body.status).toBe("Held");
     expect(body.amount).toBe(confirmedBookingTotalPrice);
     expect(body.amount).not.toBe(1);
+  });
+
+  it("PATCH /api/profile: email in body is ignored; DB email is unchanged", async () => {
+    if (skip()) return;
+
+    const user = await newUser();
+    cleanupIds.push(user.userId);
+    await setupProfile(user.jar);
+
+    const res = await api(user.jar, "PATCH", "/api/profile", {
+      name: "NewName",
+      email: "hack@hack.com",
+    });
+    expect(res.status).toBe(200);
+
+    const row = await db.user.findUniqueOrThrow({
+      where: { id: user.userId },
+      select: { email: true, name: true },
+    });
+    expect(row.email).toBe(user.email);
+    expect(row.name).toBe("NewName");
+  });
+
+  it("PATCH /api/admin/bookings/[id]: approvedByAdminID in body is ignored; stored adminID is the caller's", async () => {
+    if (skip()) return;
+
+    const startDate = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+    const endDate = new Date(Date.now() + 62 * 86_400_000).toISOString().slice(0, 10);
+
+    const created = await api(customerJar, "POST", "/api/bookings", {
+      listingCode,
+      startDate,
+      endDate,
+      locationConsent: false,
+    });
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+
+    const confirm = await api(ownerJar, "PATCH", `/api/bookings/${id}`, { action: "confirm" });
+    expect(confirm.status).toBe(200);
+
+    const admin = await asAdmin();
+    const adminRow = await db.admin.findFirstOrThrow({
+      where: { user: { email: process.env.ADMIN_EMAIL ?? "" } },
+      select: { adminID: true },
+    });
+
+    const res = await api(admin.jar, "PATCH", `/api/admin/bookings/${id}`, {
+      action: "approve",
+      approvedByAdminID: "hack-id",
+    });
+    expect(res.status).toBe(200);
+
+    const row = await db.booking.findUniqueOrThrow({
+      where: { bookingID: id },
+      select: { approvedByAdminID: true },
+    });
+    expect(row.approvedByAdminID).toBe(adminRow.adminID);
+    expect(row.approvedByAdminID).not.toBe("hack-id");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K25: sign-out invalidates the session
+// ---------------------------------------------------------------------------
+
+describe("K25: sign-out", () => {
+  let signOutUserId: string;
+  let signOutJar: CookieJar;
+
+  beforeAll(async () => {
+    if (!serverUp) return;
+    const user = await newUser();
+    signOutUserId = user.userId;
+    signOutJar = user.jar;
+  }, 20_000);
+
+  afterAll(async () => {
+    if (signOutUserId) await cleanup(signOutUserId);
+  });
+
+  it("POST /api/auth/sign-out → 200, then GET /api/notifications with the same jar → 401", async () => {
+    if (skip()) return;
+    const signOut = await api(signOutJar, "POST", "/api/auth/sign-out", {});
+    expect(signOut.status).toBe(200);
+
+    const res = await api(signOutJar, "GET", "/api/notifications");
+    expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K28: seeded users reach their dashboards without an onboarding redirect
+// ---------------------------------------------------------------------------
+
+const seedPass = process.env.SEED_USER_PASSWORD;
+const adminEmail = process.env.ADMIN_EMAIL;
+
+(seedPass ? describe : describe.skip)("K28 · Seeded users reach dashboard", () => {
+  const password = seedPass ?? "";
+
+  async function signIn(email: string, pw: string): Promise<CookieJar> {
+    const jar = newJar();
+    const res = await api(jar, "POST", "/api/auth/sign-in/email", { email, password: pw });
+    expect(res.status).toBe(200);
+    return jar;
+  }
+
+  async function getPage(jar: CookieJar, path: string): Promise<string> {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { Cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") },
+    });
+    expect(res.status).toBe(200);
+    return res.text();
+  }
+
+  for (const email of [
+    "owner1@seed.waypoint.local",
+    "customer1@seed.waypoint.local",
+    "both1@seed.waypoint.local",
+  ]) {
+    it(`${email} → /dashboard has no onboarding redirect`, async () => {
+      if (skip()) return;
+      const jar = await signIn(email, password);
+      const body = await getPage(jar, "/dashboard");
+      expect(body).not.toMatch(/NEXT_REDIRECT;\w+;\/onboarding/);
+    });
+  }
+
+  it("admin → /dashboard/admin has no onboarding redirect", async () => {
+    if (skip() || !adminEmail) return;
+    const jar = await signIn(adminEmail, process.env.ADMIN_PASSWORD ?? "");
+    const body = await getPage(jar, "/dashboard/admin");
+    expect(body).not.toMatch(/NEXT_REDIRECT;\w+;\/onboarding/);
   });
 });
