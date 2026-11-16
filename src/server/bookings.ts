@@ -1,9 +1,10 @@
 import { db } from "@/lib/db";
 import { Prisma, BookingStatus } from "@/generated/prisma/client";
 import { HttpError } from "@/server/http";
-import { notify } from "@/server/notifications";
+import { notify, notifyAdmins } from "@/server/notifications";
 import { todayJakarta, parseDateOnly } from "@/lib/dates";
 import { toRupiah } from "@/lib/money";
+import { links } from "@/lib/links";
 import { validateBookingDates, BookingDateError } from "@/lib/validation/booking";
 import type { Actor } from "@/server/authz";
 
@@ -23,6 +24,7 @@ export interface BookingSummary {
   totalPrice: number;
   createdAt: string;
   viewerRole: "owner" | "customer";
+  adminApproved: boolean;
 }
 
 export interface BookingDetail extends BookingSummary {
@@ -37,6 +39,21 @@ export interface BookingDetail extends BookingSummary {
   hasOpenDispute: boolean;
   overdue: boolean;
   locationConsent: boolean;
+  canCancel: boolean;
+}
+
+export interface ApprovalQueueItem {
+  id: string;
+  listingCode: string;
+  make: string;
+  model: string;
+  startDate: string;
+  endDate: string;
+  totalPrice: number;
+  customerName: string;
+  customerVerificationStatus: string;
+  ownerName: string;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,6 +68,7 @@ interface RawSummary {
   status: string;
   totalPrice: Prisma.Decimal;
   createdAt: Date;
+  approvedByAdminID: string | null;
   vehicle: { listingCode: string; make: string; model: string };
 }
 
@@ -66,6 +84,7 @@ function toSummary(b: RawSummary, viewerRole: "owner" | "customer"): BookingSumm
     totalPrice: toRupiah(b.totalPrice),
     createdAt: b.createdAt.toISOString(),
     viewerRole,
+    adminApproved: !!b.approvedByAdminID,
   };
 }
 
@@ -152,7 +171,7 @@ export async function createBooking(
       type: "booking_created",
       title: "New booking request",
       body: `New booking request for ${vehicle.make} ${vehicle.model} from ${startDate} to ${endDate}`,
-      href: `/dashboard/owner/bookings/${b.bookingID}`,
+      href: links.ownerBooking(b.bookingID),
     });
 
     return b;
@@ -220,7 +239,7 @@ export async function getBookingDetail(
     include: {
       vehicle: true,
       rentee: true,
-      payments: { orderBy: { paymentID: "desc" }, take: 1 },
+      payments: { orderBy: { paymentID: "desc" } },
       disputes: {
         where: { status: { in: ["Open", "UnderReview"] } },
         select: { disputeID: true },
@@ -238,6 +257,9 @@ export async function getBookingDetail(
   if (!viewerRole) return null;
 
   const payment = booking.payments[0] ?? null;
+  const hasHeldOrReleasedPayment = booking.payments.some(
+    (p) => p.status === "Held" || p.status === "Released"
+  );
 
   return {
     ...toSummary(booking, viewerRole),
@@ -252,7 +274,48 @@ export async function getBookingDetail(
     hasOpenDispute: booking.disputes.length > 0,
     overdue: booking.status === "Active" && booking.endDate < todayJakarta(),
     locationConsent: booking.locationConsentAt !== null,
+    canCancel:
+      viewerRole === "customer" &&
+      (booking.status === "Pending" ||
+        (booking.status === "Confirmed" && !hasHeldOrReleasedPayment)),
   };
+}
+
+// ---------------------------------------------------------------------------
+// listBookingsAwaitingApproval — AD7
+// Confirmed bookings the Owner accepted but no Admin has approved yet.
+// ---------------------------------------------------------------------------
+
+export async function listBookingsAwaitingApproval(): Promise<ApprovalQueueItem[]> {
+  const bookings = await db.booking.findMany({
+    where: { status: "Confirmed", approvedByAdminID: null },
+    include: {
+      vehicle: {
+        select: {
+          listingCode: true,
+          make: true,
+          model: true,
+          renter: { select: { name: true } },
+        },
+      },
+      rentee: { select: { name: true, verificationStatus: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return bookings.map((b) => ({
+    id: b.bookingID,
+    listingCode: b.vehicle.listingCode,
+    make: b.vehicle.make,
+    model: b.vehicle.model,
+    startDate: b.startDate.toISOString(),
+    endDate: b.endDate.toISOString(),
+    totalPrice: toRupiah(b.totalPrice),
+    customerName: b.rentee.name,
+    customerVerificationStatus: b.rentee.verificationStatus,
+    ownerName: b.vehicle.renter.name,
+    createdAt: b.createdAt.toISOString(),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +342,7 @@ export async function transitionBooking(
   if (!booking) throw new HttpError(404, "Booking not found");
 
   const vehicleLabel = `${booking.vehicle.make} ${booking.vehicle.model}`;
-  const customerHref = `/dashboard/customer/bookings/${bookingId}`;
+  const customerHref = links.customerTrip(bookingId);
 
   type Transition = {
     requiredStatus: string;
@@ -353,8 +416,165 @@ export async function transitionBooking(
       body: t.notifyBody,
       href: customerHref,
     });
+    if (action === "confirm") {
+      await notifyAdmins(tx, {
+        type: "booking_awaiting_approval",
+        title: "Booking awaiting approval",
+        body: `A confirmed booking for ${vehicleLabel} needs admin approval before payment`,
+        href: links.adminQueue("bookings"),
+      });
+    }
     return b;
   });
 
   return { id: updated.bookingID, status: updated.status };
+}
+
+// ---------------------------------------------------------------------------
+// cancelBooking — B3 (cancel, Customer side)
+// Allowed while Pending, or Confirmed with no Held or Released payment.
+// The booking row lock serialises this with createPayment (§4.17).
+// ---------------------------------------------------------------------------
+
+export async function cancelBooking(
+  renteeID: string,
+  id: string
+): Promise<{ id: string; status: BookingStatus }> {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT bookingID FROM Booking WHERE bookingID = ${id} FOR UPDATE`;
+
+    const booking = await tx.booking.findUnique({
+      where: { bookingID: id },
+      include: {
+        payments: { select: { status: true } },
+        vehicle: {
+          select: {
+            make: true,
+            model: true,
+            renter: { select: { userID: true } },
+          },
+        },
+      },
+    });
+    if (!booking || booking.renteeID !== renteeID) {
+      throw new HttpError(404, "Booking not found");
+    }
+
+    if (booking.status !== "Pending" && booking.status !== "Confirmed") {
+      throw new HttpError(409, `Cannot cancel booking in status ${booking.status}`);
+    }
+
+    const paid = booking.payments.some(
+      (p) => p.status === "Held" || p.status === "Released"
+    );
+    if (paid) {
+      throw new HttpError(
+        409,
+        "Paid bookings can't be cancelled. Raise a dispute so an admin can refund."
+      );
+    }
+
+    const updated = await tx.booking.update({
+      where: { bookingID: id },
+      data: { status: "Cancelled" },
+    });
+
+    await notify(tx, {
+      userID: booking.vehicle.renter.userID,
+      type: "booking_cancelled",
+      title: "Booking cancelled",
+      body: `The customer cancelled their booking for ${booking.vehicle.make} ${booking.vehicle.model}`,
+      href: links.ownerBooking(id),
+    });
+
+    return { id: updated.bookingID, status: updated.status };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// reviewBookingAsAdmin — AD8
+// Approve a Confirmed booking (sets approvedByAdminID) or reject it (Cancelled).
+// The Admin may not review a booking they are a party to.
+// ---------------------------------------------------------------------------
+
+export async function reviewBookingAsAdmin(
+  admin: { adminID: string; userID: string },
+  id: string,
+  action: "approve" | "reject"
+): Promise<{ id: string; status: BookingStatus; approved: boolean }> {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT bookingID FROM Booking WHERE bookingID = ${id} FOR UPDATE`;
+
+    const booking = await tx.booking.findUnique({
+      where: { bookingID: id },
+      include: {
+        vehicle: {
+          select: {
+            make: true,
+            model: true,
+            renter: { select: { userID: true } },
+          },
+        },
+        rentee: { select: { userID: true } },
+      },
+    });
+    if (!booking) throw new HttpError(404, "Booking not found");
+
+    if (
+      admin.userID === booking.rentee.userID ||
+      admin.userID === booking.vehicle.renter.userID
+    ) {
+      throw new HttpError(403, "Admins cannot review their own bookings");
+    }
+
+    if (booking.status !== "Confirmed" || booking.approvedByAdminID !== null) {
+      throw new HttpError(409, "Booking is not awaiting admin approval");
+    }
+
+    const vehicleLabel = `${booking.vehicle.make} ${booking.vehicle.model}`;
+    const ownerUserID = booking.vehicle.renter.userID;
+    const customerUserID = booking.rentee.userID;
+
+    if (action === "approve") {
+      const updated = await tx.booking.update({
+        where: { bookingID: id },
+        data: { approvedByAdminID: admin.adminID },
+      });
+      await notify(tx, {
+        userID: customerUserID,
+        type: "booking_approved",
+        title: "Booking approved",
+        body: `Your booking for ${vehicleLabel} has been approved. You can pay now.`,
+        href: links.customerCheckout(id),
+      });
+      await notify(tx, {
+        userID: ownerUserID,
+        type: "booking_approved",
+        title: "Booking approved",
+        body: `The booking for ${vehicleLabel} has been approved by Waypoint.`,
+        href: links.ownerBooking(id),
+      });
+      return { id: updated.bookingID, status: updated.status, approved: true };
+    }
+
+    const updated = await tx.booking.update({
+      where: { bookingID: id },
+      data: { status: "Cancelled" },
+    });
+    await notify(tx, {
+      userID: customerUserID,
+      type: "booking_rejected",
+      title: "Booking not approved",
+      body: `Your booking for ${vehicleLabel} was not approved by Waypoint and has been cancelled.`,
+      href: links.customerCheckout(id),
+    });
+    await notify(tx, {
+      userID: ownerUserID,
+      type: "booking_rejected",
+      title: "Booking not approved",
+      body: `The booking for ${vehicleLabel} was not approved by Waypoint and has been cancelled.`,
+      href: links.ownerBooking(id),
+    });
+    return { id: updated.bookingID, status: updated.status, approved: false };
+  });
 }

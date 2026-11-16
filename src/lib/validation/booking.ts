@@ -21,9 +21,14 @@ export const BookingListQuery = z.object({
 export type BookingListQuery = z.infer<typeof BookingListQuery>;
 
 export const BookingAction = z.object({
-  action: z.enum(["confirm", "decline", "start", "complete"]),
+  action: z.enum(["confirm", "decline", "start", "complete", "cancel"]),
 });
 export type BookingAction = z.infer<typeof BookingAction>;
+
+export const AdminBookingAction = z.object({
+  action: z.enum(["approve", "reject"]),
+});
+export type AdminBookingAction = z.infer<typeof AdminBookingAction>;
 
 export class BookingDateError extends Error {
   constructor(message: string) {
