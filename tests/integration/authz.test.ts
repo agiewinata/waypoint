@@ -623,7 +623,7 @@ describe("K7 · Owner page guard: user without Owner profile is redirected", () 
     });
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("/dashboard/owner/new");
+    expect(body).toContain("NEXT_REDIRECT;replace;/dashboard/owner/new;307");
   });
 });
 

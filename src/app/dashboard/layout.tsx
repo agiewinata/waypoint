@@ -15,8 +15,8 @@ export default async function DashboardLayout({
   }
 
   // Send new users to onboarding before they can use the dashboard
-  const { profile } = await getProfilesForUser(session.user.id);
-  if (!profile) {
+  const { profile, admin } = await getProfilesForUser(session.user.id);
+  if (!profile && !admin) {
     redirect("/onboarding");
   }
 
