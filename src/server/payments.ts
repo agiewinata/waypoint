@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { HttpError } from "@/server/http";
 import { notify } from "@/server/notifications";
 import { toRupiah, ownerPayout } from "@/lib/money";
+import { links } from "@/lib/links";
 import type { Actor } from "@/server/authz";
 import type { PaymentCreateInput } from "@/lib/validation/payment";
 
@@ -45,76 +46,86 @@ export async function createPayment(
   renteeID: string,
   input: PaymentCreateInput
 ): Promise<{ id: string; status: string; amount: number }> {
-  // 1. Find booking by id where renteeID matches → 404
-  const booking = await db.booking.findFirst({
-    where: { bookingID: input.bookingId, renteeID },
-    include: {
-      vehicle: {
-        include: {
-          renter: { select: { userID: true } },
+  return db.$transaction(async (tx) => {
+    // Row-level lock shared with cancelBooking and reviewBookingAsAdmin (§4.17)
+    await tx.$queryRaw`SELECT bookingID FROM Booking WHERE bookingID = ${input.bookingId} FOR UPDATE`;
+
+    // 1. Find booking by id where renteeID matches → 404
+    const booking = await tx.booking.findFirst({
+      where: { bookingID: input.bookingId, renteeID },
+      include: {
+        vehicle: {
+          include: {
+            renter: { select: { userID: true } },
+          },
         },
       },
-    },
-  });
-  if (!booking) throw new HttpError(404, "Booking not found");
+    });
+    if (!booking) throw new HttpError(404, "Booking not found");
 
-  // 2. 409 if booking is not Confirmed
-  if (booking.status !== "Confirmed") {
-    throw new HttpError(409, "Booking must be in Confirmed status");
-  }
+    // 2. 409 if booking is not Confirmed
+    if (booking.status !== "Confirmed") {
+      throw new HttpError(409, "Booking must be in Confirmed status");
+    }
 
-  // 3. Customer must have both Verified KTP and Verified SIM
-  const verifiedDocs = await db.document.findMany({
-    where: {
-      renteeID,
-      type: { in: ["KTP", "SIM"] },
-      verificationStatus: "Verified",
-    },
-    select: { type: true },
-  });
-  const hasKTP = verifiedDocs.some((d) => d.type === "KTP");
-  const hasSIM = verifiedDocs.some((d) => d.type === "SIM");
-  if (!hasKTP || !hasSIM) {
-    throw new HttpError(409, "Customer must have Verified KTP and SIM documents");
-  }
+    // 3. 409 if an Admin has not approved the booking yet
+    if (booking.approvedByAdminID === null) {
+      throw new HttpError(409, "Booking is awaiting admin approval");
+    }
 
-  // 4. 409 if a Held or Released payment already exists for this booking
-  const existing = await db.payment.findFirst({
-    where: {
-      bookingID: input.bookingId,
-      status: { in: ["Held", "Released"] },
-    },
-    select: { paymentID: true },
-  });
-  if (existing) {
-    throw new HttpError(409, "A payment already exists for this booking");
-  }
+    // 4. Customer must have both Verified KTP and Verified SIM
+    const verifiedDocs = await tx.document.findMany({
+      where: {
+        renteeID,
+        type: { in: ["KTP", "SIM"] },
+        verificationStatus: "Verified",
+      },
+      select: { type: true },
+    });
+    const hasKTP = verifiedDocs.some((d) => d.type === "KTP");
+    const hasSIM = verifiedDocs.some((d) => d.type === "SIM");
+    if (!hasKTP || !hasSIM) {
+      throw new HttpError(409, "Customer must have Verified KTP and SIM documents");
+    }
 
-  // 5. Create the payment in Held (escrow) status
-  const payment = await db.payment.create({
-    data: {
-      bookingID: input.bookingId,
-      amount: booking.totalPrice,
-      method: input.method,
+    // 5. 409 if a Held or Released payment already exists for this booking
+    const existing = await tx.payment.findFirst({
+      where: {
+        bookingID: input.bookingId,
+        status: { in: ["Held", "Released"] },
+      },
+      select: { paymentID: true },
+    });
+    if (existing) {
+      throw new HttpError(409, "A payment already exists for this booking");
+    }
+
+    // 6. Create the payment in Held (escrow) status
+    const payment = await tx.payment.create({
+      data: {
+        bookingID: input.bookingId,
+        amount: booking.totalPrice,
+        method: input.method,
+        status: "Held",
+        paidAt: new Date(),
+      },
+    });
+
+    // 7. Notify the vehicle owner that funds are held
+    await notify(tx, {
+      userID: booking.vehicle.renter.userID,
+      type: "payment_held",
+      title: "Payment held in escrow",
+      body: `A payment of ${toRupiah(payment.amount).toLocaleString("id-ID")} has been held for booking ${booking.bookingID}.`,
+      href: links.ownerBooking(booking.bookingID),
+    });
+
+    return {
+      id: payment.paymentID,
       status: "Held",
-      paidAt: new Date(),
-    },
+      amount: toRupiah(payment.amount),
+    };
   });
-
-  // 6. Notify the vehicle owner that funds are held
-  await notify(db, {
-    userID: booking.vehicle.renter.userID,
-    type: "payment_held",
-    title: "Payment held in escrow",
-    body: `A payment of ${toRupiah(payment.amount).toLocaleString("id-ID")} has been held for booking ${booking.bookingID}.`,
-    href: `/dashboard/owner/bookings/${booking.bookingID}`,
-  });
-
-  return {
-    id: payment.paymentID,
-    status: "Held",
-    amount: toRupiah(payment.amount),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -174,27 +185,30 @@ export async function transitionPayment(
 
     const { payout } = ownerPayout(payment.amount);
 
-    const updated = await db.payment.update({
-      where: { paymentID: paymentId },
-      data: { status: "Released", escrowReleaseDate: new Date() },
+    await db.$transaction(async (tx) => {
+      const { count } = await tx.payment.updateMany({
+        where: { paymentID: paymentId, status: "Held" },
+        data: { status: "Released", escrowReleaseDate: new Date() },
+      });
+      if (count === 0) throw new HttpError(409, "Payment is not in Held status");
+
+      await notify(tx, {
+        userID: payment.booking.vehicle.renter.userID,
+        type: "payment_released",
+        title: "Escrow released",
+        body: `Payment of ${toRupiah(payment.amount).toLocaleString("id-ID")} has been released. Your payout: ${payout.toLocaleString("id-ID")}.`,
+        href: links.ownerBooking(payment.booking.bookingID),
+      });
+      await notify(tx, {
+        userID: payment.booking.rentee.userID,
+        type: "payment_released",
+        title: "Payment released",
+        body: `Your payment for booking ${payment.booking.bookingID} has been released to the owner.`,
+        href: links.customerTrip(payment.booking.bookingID),
+      });
     });
 
-    await notify(db, {
-      userID: payment.booking.vehicle.renter.userID,
-      type: "payment_released",
-      title: "Escrow released",
-      body: `Payment of ${toRupiah(payment.amount).toLocaleString("id-ID")} has been released. Your payout: ${payout.toLocaleString("id-ID")}.`,
-      href: `/dashboard/owner/bookings/${payment.booking.bookingID}`,
-    });
-    await notify(db, {
-      userID: payment.booking.rentee.userID,
-      type: "payment_released",
-      title: "Payment released",
-      body: `Your payment for booking ${payment.booking.bookingID} has been released to the owner.`,
-      href: `/dashboard/customer/bookings/${payment.booking.bookingID}`,
-    });
-
-    return { id: updated.paymentID, status: "Released", ownerPayout: payout };
+    return { id: paymentId, status: "Released", ownerPayout: payout };
   }
 
   // action === "fail"
@@ -202,27 +216,30 @@ export async function transitionPayment(
     throw new HttpError(403, "Admin access required");
   }
 
-  const updated = await db.payment.update({
-    where: { paymentID: paymentId },
-    data: { status: "Failed" },
+  await db.$transaction(async (tx) => {
+    const { count } = await tx.payment.updateMany({
+      where: { paymentID: paymentId, status: "Held" },
+      data: { status: "Failed" },
+    });
+    if (count === 0) throw new HttpError(409, "Payment is not in Held status");
+
+    await notify(tx, {
+      userID: payment.booking.vehicle.renter.userID,
+      type: "payment_failed",
+      title: "Payment failed",
+      body: `A payment for booking ${payment.booking.bookingID} has been marked as failed.`,
+      href: links.ownerBooking(payment.booking.bookingID),
+    });
+    await notify(tx, {
+      userID: payment.booking.rentee.userID,
+      type: "payment_failed",
+      title: "Payment failed",
+      body: `Your payment for booking ${payment.booking.bookingID} has failed.`,
+      href: links.customerTrip(payment.booking.bookingID),
+    });
   });
 
-  await notify(db, {
-    userID: payment.booking.vehicle.renter.userID,
-    type: "payment_failed",
-    title: "Payment failed",
-    body: `A payment for booking ${payment.booking.bookingID} has been marked as failed.`,
-    href: `/dashboard/owner/bookings/${payment.booking.bookingID}`,
-  });
-  await notify(db, {
-    userID: payment.booking.rentee.userID,
-    type: "payment_failed",
-    title: "Payment failed",
-    body: `Your payment for booking ${payment.booking.bookingID} has failed.`,
-    href: `/dashboard/customer/bookings/${payment.booking.bookingID}`,
-  });
-
-  return { id: updated.paymentID, status: "Failed" };
+  return { id: paymentId, status: "Failed" };
 }
 
 // ---------------------------------------------------------------------------

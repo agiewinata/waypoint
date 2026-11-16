@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { HttpError } from "@/server/http";
 import { notify, notifyAdmins } from "@/server/notifications";
+import { links } from "@/lib/links";
 import type { Actor } from "@/server/authz";
 import type { DisputeCreateInputType } from "@/lib/validation/dispute";
 
@@ -35,11 +36,13 @@ export async function raiseDispute(
   // Determine which party is raising the dispute and who the counterpart is.
   let raisedBy: "Rentee" | "Renter";
   let counterpartUserID: string | null | undefined;
+  let counterpartHref: string;
 
   if (actor.rentee && booking.renteeID === actor.rentee.renteeID) {
     raisedBy = "Rentee";
     // Notify the vehicle owner (Renter)
     counterpartUserID = booking.vehicle.renter.userID;
+    counterpartHref = links.ownerBooking(input.bookingId);
   } else if (
     actor.renter &&
     booking.vehicle.renterID === actor.renter.renterID
@@ -47,6 +50,7 @@ export async function raiseDispute(
     raisedBy = "Renter";
     // Notify the customer (Rentee)
     counterpartUserID = booking.rentee.userID;
+    counterpartHref = links.customerTrip(input.bookingId);
   } else {
     // Actor is not a party to this booking
     throw new HttpError(404, "Booking not found");
@@ -96,7 +100,7 @@ export async function raiseDispute(
       type: "dispute_opened",
       title: "New dispute raised",
       body: "A dispute has been raised on one of your bookings.",
-      href: "/dashboard",
+      href: counterpartHref,
     });
 
     // Notify all admins so they can review
@@ -104,7 +108,7 @@ export async function raiseDispute(
       type: "dispute_opened",
       title: "New dispute",
       body: `A new dispute has been opened on booking ${input.bookingId}.`,
-      href: "/dashboard/admin#disputes",
+      href: links.adminDispute(created.disputeID),
     });
 
     return created;
