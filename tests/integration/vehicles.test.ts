@@ -94,6 +94,7 @@ describe("A1: GET /api/vehicles (public listing)", () => {
       expect(item).toHaveProperty("pricePerDay");
       expect(item).toHaveProperty("ownerFirstName");
       expect(item).not.toHaveProperty("vin");
+      expect(typeof (item as { ownerVerified: unknown }).ownerVerified).toBe("boolean");
     }
   });
 
@@ -384,6 +385,16 @@ describe("A4: PATCH /api/vehicles/[code]", () => {
         authTag: dummyTag,
       },
     });
+    await db.document.create({
+      data: {
+        vehicleVIN: vin,
+        type: "Insurance",
+        verificationStatus: "Pending",
+        fileData: dummyFile,
+        iv: dummyIv,
+        authTag: dummyTag,
+      },
+    });
 
     const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
       action: "submit",
@@ -392,5 +403,238 @@ describe("A4: PATCH /api/vehicles/[code]", () => {
     const body = (await res.json()) as { listingCode: string; status: string };
     expect(body.status).toBe("Pending");
     expect(body.listingCode).toBe(listingCode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K21: PATCH /api/vehicles/[code] — update (A4 update), status rules per §3.5
+// ---------------------------------------------------------------------------
+
+describe("K21: PATCH /api/vehicles/[code] update", { timeout: 20_000 }, () => {
+  const userIds: string[] = [];
+
+  afterAll(async () => {
+    await cleanup(...userIds);
+  });
+
+  /** Creates an owner with one vehicle in the given status (direct DB fixture). */
+  async function ownerWithVehicle(
+    status: "Draft" | "Rejected" | "Pending" | "Approved"
+  ) {
+    const user = await newUser();
+    userIds.push(user.userId);
+    const { jar, renterID } = await asOwner(user.jar);
+    const vin = randomVin();
+    const listingCode = `K21-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+    await db.vehicle.create({
+      data: {
+        VIN: vin,
+        renterID,
+        listingCode,
+        make: "Toyota",
+        model: "Avanza",
+        year: 2022,
+        plateNumber: randomPlate(),
+        type: "MPV",
+        city: "Jakarta",
+        pricePerDay: 200_000,
+        status,
+      },
+    });
+    return { jar, renterID, listingCode, vin };
+  }
+
+  /** Adds a Pending document of the given type to a vehicle. */
+  async function addVehicleDoc(vin: string, type: "STNK" | "Insurance") {
+    const dummyFile = new Uint8Array([0]);
+    const dummyIv = "00000000000000000000000000000000";
+    const dummyTag = "00000000000000000000000000000000";
+    await db.document.create({
+      data: {
+        vehicleVIN: vin,
+        type,
+        verificationStatus: "Pending",
+        fileData: dummyFile,
+        iv: dummyIv,
+        authTag: dummyTag,
+      },
+    });
+  }
+
+  it("Draft: updates make, model, year, plate, type, city and price and persists them", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Draft");
+    const plateNumber = randomPlate();
+
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      make: "Honda",
+      model: "Civic",
+      year: 2023,
+      plateNumber,
+      type: "Sedan",
+      city: "Bandung",
+      pricePerDay: 350_000,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      make: string;
+      model: string;
+      year: number;
+      plateNumber: string;
+      type: string;
+      city: string;
+      pricePerDay: number;
+      status: string;
+    };
+    expect(body.make).toBe("Honda");
+    expect(body.pricePerDay).toBe(350_000);
+    expect(body.status).toBe("Draft");
+
+    const row = await db.vehicle.findUniqueOrThrow({ where: { listingCode } });
+    expect(row.make).toBe("Honda");
+    expect(row.model).toBe("Civic");
+    expect(row.year).toBe(2023);
+    expect(row.plateNumber).toBe(plateNumber);
+    expect(row.type).toBe("Sedan");
+    expect(row.city).toBe("Bandung");
+    expect(Number(row.pricePerDay)).toBe(350_000);
+  });
+
+  it("Rejected: update returns 200", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Rejected");
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      make: "Mazda",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { make: string };
+    expect(body.make).toBe("Mazda");
+  });
+
+  it("Pending: update returns 409", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Pending");
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      make: "Mazda",
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/under review/i);
+  });
+
+  it("Approved: { pricePerDay } returns 200 and persists the price", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Approved");
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      pricePerDay: 275_000,
+    });
+    expect(res.status).toBe(200);
+    const row = await db.vehicle.findUniqueOrThrow({ where: { listingCode } });
+    expect(Number(row.pricePerDay)).toBe(275_000);
+  });
+
+  it("Approved: { make } returns 409", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Approved");
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      make: "Mazda",
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/only price/i);
+  });
+
+  it("returns 409 when the plate is held by another vehicle", async () => {
+    const { jar, listingCode, renterID } = await ownerWithVehicle("Draft");
+    const takenPlate = randomPlate();
+    await db.vehicle.create({
+      data: {
+        VIN: randomVin(),
+        renterID,
+        listingCode: `K21O-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+        make: "Honda",
+        model: "Jazz",
+        year: 2020,
+        plateNumber: takenPlate,
+        type: "Hatchback",
+        city: "Bandung",
+        pricePerDay: 150_000,
+        status: "Draft",
+      },
+    });
+
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      plateNumber: takenPlate,
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/plate/i);
+  });
+
+  it("returns 400 for an update with no fields", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Draft");
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for a price of 49,999", async () => {
+    const { jar, listingCode } = await ownerWithVehicle("Draft");
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      pricePerDay: 49_999,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when another owner updates the vehicle", async () => {
+    const { listingCode } = await ownerWithVehicle("Draft");
+    const other = await newUser();
+    userIds.push(other.userId);
+    const { jar: otherJar } = await asOwner(other.jar);
+    const res = await api(otherJar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      make: "Mazda",
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("submit with only an STNK returns 409; with STNK and Insurance returns 200", async () => {
+    const { jar, listingCode, vin } = await ownerWithVehicle("Draft");
+    await addVehicleDoc(vin, "STNK");
+
+    const missing = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "submit",
+    });
+    expect(missing.status).toBe(409);
+    const missingBody = (await missing.json()) as { error: string };
+    expect(missingBody.error).toMatch(/insurance/i);
+
+    await addVehicleDoc(vin, "Insurance");
+    const complete = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "submit",
+    });
+    expect(complete.status).toBe(200);
+  });
+
+  it("K8 A4: vin, status and renterID in the body are ignored", async () => {
+    const { jar, listingCode, vin, renterID } = await ownerWithVehicle("Draft");
+
+    const res = await api(jar, "PATCH", `/api/vehicles/${listingCode}`, {
+      action: "update",
+      make: "Changed",
+      vin: "NEWVIN",
+      status: "Approved",
+      renterID: "other",
+    });
+    expect(res.status).toBe(200);
+
+    const row = await db.vehicle.findUniqueOrThrow({ where: { listingCode } });
+    expect(row.VIN).toBe(vin);
+    expect(row.status).toBe("Draft");
+    expect(row.renterID).toBe(renterID);
+    expect(row.make).toBe("Changed");
   });
 });

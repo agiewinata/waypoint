@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   assertVehiclePriceValid,
   VehicleCreateInput,
+  VehiclePatchInput,
   VehicleSearchQuery,
 } from "@/lib/validation/vehicle";
 
@@ -154,6 +155,57 @@ describe("VehicleCreateInput", () => {
 
   it("rejects unknown city", () => {
     const result = VehicleCreateInput.safeParse({ ...validInput, city: "Palembang" });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VehiclePatchInput — A4 discriminated union (submit | update)
+// ---------------------------------------------------------------------------
+
+describe("VehiclePatchInput", () => {
+  it("accepts action submit", () => {
+    const result = VehiclePatchInput.safeParse({ action: "submit" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects update with no fields", () => {
+    const result = VehiclePatchInput.safeParse({ action: "update" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts update with a single field", () => {
+    const result = VehiclePatchInput.safeParse({ action: "update", make: "Toyota" });
+    expect(result.success).toBe(true);
+  });
+
+  it("applies the create field rules to update fields", () => {
+    const result = VehiclePatchInput.safeParse({ action: "update", pricePerDay: 49_999 });
+    expect(result.success).toBe(false);
+  });
+
+  it("strips vin from an update body", () => {
+    const result = VehiclePatchInput.safeParse({
+      action: "update",
+      make: "Toyota",
+      vin: "1HGCM82633A004352",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).not.toHaveProperty("vin");
+  });
+
+  it("strips status from an update body", () => {
+    const result = VehiclePatchInput.safeParse({
+      action: "update",
+      make: "Toyota",
+      status: "Approved",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).not.toHaveProperty("status");
+  });
+
+  it("rejects an unknown action", () => {
+    const result = VehiclePatchInput.safeParse({ action: "delete" });
     expect(result.success).toBe(false);
   });
 });
