@@ -1,5 +1,20 @@
 import { db } from "@/lib/db";
 import { isPrismaError } from "@/server/http";
+import type { VerificationStatus } from "@/generated/prisma/client";
+import type { ProfileUpdateInput } from "@/lib/validation/profile";
+
+export type AccountOverview = {
+  name: string;
+  email: string;
+  phone: string | null;
+  address: string | null;
+  hasPassword: boolean;
+  roles: {
+    owner: { status: VerificationStatus } | null;
+    customer: { status: VerificationStatus } | null;
+    admin: boolean;
+  };
+};
 
 export class ProfileExistsError extends Error {
   constructor() {
@@ -91,4 +106,77 @@ export async function enableRenting(userId: string) {
     if (isPrismaError(err, "P2002")) throw new ProfileExistsError();
     throw err;
   }
+}
+
+/** Loads the account page view for a user; null if the User row does not exist. */
+export async function getAccountOverview(userId: string): Promise<AccountOverview | null> {
+  const [user, profile, renter, rentee, admin, credential] = await Promise.all([
+    db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+    db.profile.findUnique({ where: { userID: userId }, select: { phone: true, address: true } }),
+    db.renter.findUnique({ where: { userID: userId }, select: { verificationStatus: true } }),
+    db.rentee.findUnique({ where: { userID: userId }, select: { verificationStatus: true } }),
+    db.admin.findUnique({ where: { userID: userId }, select: { adminID: true } }),
+    db.account.findFirst({
+      where: { userId, providerId: "credential" },
+      select: { id: true },
+    }),
+  ]);
+  if (!user) return null;
+
+  return {
+    name: user.name,
+    email: user.email,
+    phone: profile?.phone ?? null,
+    address: profile?.address ?? null,
+    hasPassword: credential !== null,
+    roles: {
+      owner: renter ? { status: renter.verificationStatus } : null,
+      customer: rentee ? { status: rentee.verificationStatus } : null,
+      admin: admin !== null,
+    },
+  };
+}
+
+/**
+ * Updates the shared profile and syncs the copied name, phone and address
+ * onto every Renter and Rentee row for the user, in one transaction.
+ */
+export async function updateProfile(
+  userId: string,
+  input: ProfileUpdateInput
+): Promise<AccountOverview> {
+  const { name, phone, address } = input;
+  const touchesCopies = name !== undefined || phone !== undefined || address !== undefined;
+
+  await db.$transaction(async (tx) => {
+    const profile = await tx.profile.findUnique({
+      where: { userID: userId },
+      select: { profileID: true },
+    });
+    if (!profile) throw new ProfileMissingError();
+
+    if (name !== undefined) {
+      await tx.user.update({ where: { id: userId }, data: { name } });
+    }
+    if (phone !== undefined || address !== undefined) {
+      await tx.profile.update({
+        where: { userID: userId },
+        data: { phone, address },
+      });
+    }
+    if (touchesCopies) {
+      await tx.renter.updateMany({
+        where: { userID: userId },
+        data: { name, phone, address },
+      });
+      await tx.rentee.updateMany({
+        where: { userID: userId },
+        data: { name, phone, address },
+      });
+    }
+  });
+
+  const overview = await getAccountOverview(userId);
+  if (!overview) throw new ProfileMissingError();
+  return overview;
 }

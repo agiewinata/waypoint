@@ -7,3 +7,11 @@ export const OnboardingInput = z.object({
 });
 
 export type OnboardingInput = z.infer<typeof OnboardingInput>;
+
+export const ProfileUpdateInput = OnboardingInput.partial().superRefine((val, ctx) => {
+  if (Object.keys(val).length === 0) {
+    ctx.addIssue({ code: "custom", message: "At least one field is required" });
+  }
+});
+
+export type ProfileUpdateInput = z.infer<typeof ProfileUpdateInput>;
