@@ -46,9 +46,9 @@ describe("computeVerificationStatus", () => {
     expect(computeVerificationStatus([], customer)).toBe("Unverified");
   });
 
-  it("missing one required type (SIM absent) → Unverified", () => {
+  it("missing one required type (SIM absent) → Pending", () => {
     const docs = [doc("KTP", "Verified", T0)];
-    expect(computeVerificationStatus(docs, customer)).toBe("Unverified");
+    expect(computeVerificationStatus(docs, customer)).toBe("Pending");
   });
 
   it("docs only for non-required type → Unverified", () => {
@@ -74,12 +74,12 @@ describe("computeVerificationStatus", () => {
     expect(computeVerificationStatus(docs, owner)).toBe("Verified");
   });
 
-  it("owner required: missing BPKB → Unverified", () => {
+  it("owner required: missing BPKB → Pending", () => {
     const docs = [
       doc("KTP", "Verified", T0),
       doc("SIM", "Verified", T0),
     ];
-    expect(computeVerificationStatus(docs, owner)).toBe("Unverified");
+    expect(computeVerificationStatus(docs, owner)).toBe("Pending");
   });
 
   it("extra non-required type does not affect result → Verified", () => {

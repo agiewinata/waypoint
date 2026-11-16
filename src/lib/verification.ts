@@ -18,13 +18,15 @@ export function computeVerificationStatus(
     }
   }
 
-  // If any required type has no doc → Unverified
-  for (const type of required) {
-    if (!latestByType.has(type)) return "Unverified";
-  }
+  // All required types have a Verified doc → Verified
+  if (required.every((type) => latestByType.get(type)?.status === "Verified")) return "Verified";
 
-  // All required types have latest docs; check their statuses
-  if (required.every((type) => latestByType.get(type)!.status === "Verified")) return "Verified";
-  if (required.some((type) => latestByType.get(type)!.status === "Rejected")) return "Rejected";
-  return "Pending";
+  // Any required type's latest doc is Rejected → Rejected
+  if (required.some((type) => latestByType.get(type)?.status === "Rejected")) return "Rejected";
+
+  // At least one required type has any doc → Pending
+  if (required.some((type) => latestByType.has(type))) return "Pending";
+
+  // No required type has any doc → Unverified
+  return "Unverified";
 }
