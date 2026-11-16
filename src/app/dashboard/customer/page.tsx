@@ -283,7 +283,20 @@ export default async function CustomerDashboardPage() {
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <StatusTag status={trip.status} />
-                        {trip.status === "Confirmed" && (
+                        {trip.status === "Confirmed" && !trip.adminApproved && (
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 9,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              color: "var(--slate)",
+                            }}
+                          >
+                            Awaiting approval
+                          </span>
+                        )}
+                        {trip.status === "Confirmed" && trip.adminApproved && (
                           <span
                             style={{
                               fontFamily: "var(--font-mono)",

@@ -27,9 +27,11 @@ export default async function CheckoutPage({
   // Preconditions for payment
   const isConfirmed = booking.status === "Confirmed";
   const isVerified = actor.rentee.verificationStatus === "Verified";
-  const hasNoPriorPayment = booking.paymentStatus === null;
+  const isApproved = booking.adminApproved;
+  const alreadyPaid =
+    booking.paymentStatus === "Held" || booking.paymentStatus === "Released";
 
-  const canPay = isConfirmed && isVerified && hasNoPriorPayment;
+  const canPay = isConfirmed && isVerified && isApproved && !alreadyPaid;
 
   // First failing precondition message shown to the customer
   let reason: string | null = null;
@@ -37,9 +39,16 @@ export default async function CheckoutPage({
     reason = "Booking must be in Confirmed status before payment.";
   } else if (!isVerified) {
     reason = "Your identity must be Verified before you can pay. Upload your KTP and SIM.";
-  } else if (!hasNoPriorPayment) {
+  } else if (!isApproved) {
+    reason = "Waypoint must approve this booking before you can pay.";
+  } else if (alreadyPaid) {
     reason = "A payment has already been recorded for this booking.";
   }
+
+  const checklist = [
+    { label: "Approved by Waypoint", done: isApproved },
+    { label: "Identity verified", done: isVerified },
+  ];
 
   const totalPrice = booking.paymentAmount ?? booking.totalPrice;
   const vehicleLabel = `${booking.vehicleYear} ${booking.make} ${booking.model}`;
@@ -156,6 +165,43 @@ export default async function CheckoutPage({
                     <span className="spec-value">{r.value}</span>
                   </div>
                 ))}
+
+                {/* Precondition checklist */}
+                <div style={{ marginTop: 12 }}>
+                  {checklist.map((c) => (
+                    <div
+                      key={c.label}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}
+                    >
+                      <div
+                        style={{
+                          width: 16,
+                          height: 16,
+                          border: `1px solid ${c.done ? "var(--ok)" : "var(--line)"}`,
+                          background: c.done ? "var(--ok)" : "transparent",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                        aria-hidden="true"
+                      >
+                        {c.done && <Icon icon="ph:check" width={10} style={{ color: "#fff" }} />}
+                      </div>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          letterSpacing: "0.07em",
+                          textTransform: "uppercase",
+                          color: c.done ? "var(--ok)" : "var(--slate)",
+                        }}
+                      >
+                        {c.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
 
                 <div
                   style={{
