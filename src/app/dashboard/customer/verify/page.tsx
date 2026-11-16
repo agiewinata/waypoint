@@ -1,67 +1,43 @@
-"use client";
-
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Icon } from "@iconify/react";
-import { Header } from "@/components/ui/Header";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { SideNav } from "@/components/ui/SideNav";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
-import { StatusTag } from "@/components/ui/StatusTag";
+import { VerifyUploadForm } from "@/components/customer/VerifyUploadForm";
+import { requireCustomerPage } from "@/server/authz";
+import { listCustomerDocuments } from "@/server/documents";
 
 export const dynamic = "force-dynamic";
 
-const NAV_ITEMS = [
-  { label: "My Trips",     href: "/dashboard/customer",          icon: "ph:car" },
-  { label: "Verification", href: "/dashboard/customer/verify",   icon: "ph:identification-card", badge: 1 },
-  { label: "Messages",     href: "/messages",                     icon: "ph:chat-dots" },
-  { label: "Notifications",href: "/notifications",                icon: "ph:bell" },
-  { label: "Account",      href: "/account",                      icon: "ph:user" },
-];
-
-interface DocUpload {
-  type: "KTP" | "SIM";
-  label: string;
-  hint: string;
-  status: "none" | "uploading" | "pending" | "verified" | "rejected";
-  file?: File;
+/** Derives two-letter initials from a display name. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 }
 
-export default function VerificationPage() {
-  const [docs, setDocs] = useState<DocUpload[]>([
-    { type: "KTP", label: "National ID (KTP)", hint: "Front side of your national identity card", status: "none" },
-    { type: "SIM", label: "Driver's licence (SIM)", hint: "Front side of your driver's licence (SIM A or SIM C)", status: "pending" },
-  ]);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+const NAV_ITEMS = [
+  { label: "My Trips",      href: "/dashboard/customer",        icon: "ph:car" },
+  { label: "Verification",  href: "/dashboard/customer/verify", icon: "ph:identification-card" },
+  { label: "Messages",      href: "/messages",                  icon: "ph:chat-dots" },
+  { label: "Notifications", href: "/notifications",             icon: "ph:bell" },
+  { label: "Account",       href: "/account",                   icon: "ph:user" },
+];
 
-  function handleFile(type: "KTP" | "SIM", file: File) {
-    setDocs((prev) =>
-      prev.map((d) =>
-        d.type === type ? { ...d, file, status: "uploading" } : d
-      )
-    );
-    setTimeout(() => {
-      setDocs((prev) =>
-        prev.map((d) => (d.type === type ? { ...d, status: "none" } : d))
-      );
-    }, 800);
-  }
+export default async function VerificationPage() {
+  const actor = await requireCustomerPage();
+  const docs = await listCustomerDocuments(actor.rentee.renteeID);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setSubmitted(true);
-    setSubmitting(false);
-  }
+  // Most-recent doc of each type (listCustomerDocuments returns desc by createdAt)
+  const ktpDoc = docs.find((d) => d.type === "KTP") ?? null;
+  const simDoc = docs.find((d) => d.type === "SIM") ?? null;
 
-  const allReady = docs.every(
-    (d) => d.status === "none" && d.file !== undefined
-  ) || docs.some((d) => d.status === "pending");
+  const userName = actor.user.name || actor.user.email;
+  const userInitials = initials(userName);
 
   return (
     <>
-      <Header userName="Andi Pratama" userInitials="AP" />
+      <SiteHeader />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container">
@@ -69,9 +45,9 @@ export default function VerificationPage() {
             <div className="dashboard-sidebar">
               <SideNav
                 items={NAV_ITEMS}
-                userName="Andi Pratama"
+                userName={userName}
                 userRole="Customer"
-                userInitials="AP"
+                userInitials={userInitials}
                 switchRoleHref="/dashboard/owner"
               />
             </div>
@@ -105,198 +81,25 @@ export default function VerificationPage() {
                 >
                   Verify your identity
                 </h1>
-                <p style={{ color: "var(--slate)", fontSize: 14, marginTop: 8, lineHeight: 1.6, maxWidth: 520 }}>
-                  Upload your KTP and SIM. Documents are encrypted at rest and viewed only by Waypoint admins during review. Access is logged.
+                <p
+                  style={{
+                    color: "var(--slate)",
+                    fontSize: 14,
+                    marginTop: 8,
+                    lineHeight: 1.6,
+                    maxWidth: 520,
+                  }}
+                >
+                  Upload your KTP and SIM. Documents are encrypted at rest and viewed only
+                  by Waypoint admins during review. Access is logged.
                 </p>
               </div>
 
-              <AnimatePresence mode="wait">
-                {submitted ? (
-                  <motion.div
-                    key="success"
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    style={{
-                      border: "1px solid var(--ok)",
-                      padding: "36px 28px",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      textAlign: "center",
-                      gap: 16,
-                      maxWidth: 480,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 52,
-                        height: 52,
-                        border: "1px solid var(--ok)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Icon icon="ph:check" width={28} style={{ color: "var(--ok)" }} />
-                    </div>
-                    <div>
-                      <h2
-                        style={{
-                          fontFamily: "var(--font-display)",
-                          fontSize: 22,
-                          fontWeight: 700,
-                          color: "var(--ink)",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Documents submitted
-                      </h2>
-                      <p style={{ color: "var(--slate)", fontSize: 14, lineHeight: 1.6 }}>
-                        Our team will review your documents within 2 hours. You&apos;ll be notified when verification is complete.
-                      </p>
-                    </div>
-                    <StatusTag status="Pending" />
-                  </motion.div>
-                ) : (
-                  <motion.form
-                    key="form"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    onSubmit={handleSubmit}
-                    style={{ maxWidth: 560 }}
-                  >
-                    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                      {docs.map((doc) => (
-                        <div
-                          key={doc.type}
-                          style={{
-                            border: `1px solid ${doc.status === "pending" ? "var(--wait)" : doc.status === "verified" ? "var(--ok)" : doc.status === "rejected" ? "var(--alert)" : "var(--line)"}`,
-                            padding: "20px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              marginBottom: 12,
-                            }}
-                          >
-                            <div>
-                              <div
-                                style={{
-                                  fontFamily: "var(--font-display)",
-                                  fontSize: 16,
-                                  fontWeight: 700,
-                                  color: "var(--ink)",
-                                }}
-                              >
-                                {doc.label}
-                              </div>
-                              <div style={{ fontSize: 13, color: "var(--slate)", marginTop: 2 }}>
-                                {doc.hint}
-                              </div>
-                            </div>
-                            {doc.status !== "none" && doc.status !== "uploading" && (
-                              <StatusTag status={doc.status === "pending" ? "Pending" : doc.status === "verified" ? "Verified" : "Rejected"} />
-                            )}
-                          </div>
-
-                          {/* Upload area */}
-                          <label
-                            htmlFor={`upload-${doc.type}`}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 12,
-                              padding: "14px 16px",
-                              border: "1px dashed var(--line)",
-                              cursor: "pointer",
-                              background: "var(--hover)",
-                              transition: "border-color .15s",
-                            }}
-                          >
-                            {doc.status === "uploading" ? (
-                              <Icon icon="ph:spinner" width={20} style={{ color: "var(--slate)" }} className="animate-spin" aria-hidden="true" />
-                            ) : doc.file ? (
-                              <Icon icon="ph:file-text" width={20} style={{ color: "var(--ok)" }} aria-hidden="true" />
-                            ) : (
-                              <Icon icon="ph:upload-simple" width={20} style={{ color: "var(--slate)" }} aria-hidden="true" />
-                            )}
-                            <span
-                              style={{
-                                fontFamily: "var(--font-mono)",
-                                fontSize: 11,
-                                letterSpacing: "0.07em",
-                                textTransform: "uppercase",
-                                color: "var(--slate)",
-                              }}
-                            >
-                              {doc.file ? doc.file.name : `Upload ${doc.type}`}
-                            </span>
-                          </label>
-                          <input
-                            id={`upload-${doc.type}`}
-                            type="file"
-                            accept="image/*,.pdf"
-                            style={{ display: "none" }}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) handleFile(doc.type, f);
-                            }}
-                          />
-
-                          {doc.status === "rejected" && (
-                            <div
-                              style={{
-                                marginTop: 10,
-                                padding: "8px 12px",
-                                border: "1px solid var(--alert)",
-                                fontFamily: "var(--font-mono)",
-                                fontSize: 11,
-                                color: "var(--alert)",
-                                letterSpacing: "0.06em",
-                              }}
-                            >
-                              Rejected: document is blurry or expired. Please re-upload.
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Encryption notice */}
-                    <div
-                      style={{
-                        marginTop: 20,
-                        padding: "12px 14px",
-                        border: "1px solid var(--line)",
-                        display: "flex",
-                        gap: 10,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <Icon icon="ph:lock" width={14} style={{ color: "var(--slate)", marginTop: 1, flexShrink: 0 }} aria-hidden="true" />
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--slate)", letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.6 }}>
-                        Files are AES-256-GCM encrypted at rest · decrypted only during authorised admin review · access logged
-                      </span>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className="btn btn-primary"
-                      style={{ marginTop: 24, height: 44 }}
-                    >
-                      {submitting ? (
-                        <Icon icon="ph:spinner" width={16} className="animate-spin" />
-                      ) : (
-                        "Submit for review"
-                      )}
-                    </button>
-                  </motion.form>
-                )}
-              </AnimatePresence>
+              <VerifyUploadForm
+                renteeID={actor.rentee.renteeID}
+                ktpDoc={ktpDoc}
+                simDoc={simDoc}
+              />
             </div>
           </div>
         </div>
