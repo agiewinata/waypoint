@@ -25,7 +25,6 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { db } from "@/lib/db";
 import {
   api,
   newUser,

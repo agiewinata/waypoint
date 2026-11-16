@@ -17,7 +17,6 @@ import {
   newUser,
   asOwner,
   asCustomer,
-  asAdmin,
   createApprovedVehicle,
   verifyCustomer,
   cleanup,
@@ -624,7 +623,6 @@ describe("K7 · Owner page guard: user without Owner profile is redirected", () 
 
 describe("K8 · Mass assignment protection", () => {
   const cleanupIds: string[] = [];
-  let ownerJar: CookieJar;
   let customerJar: CookieJar;
   let renteeID: string;
   let listingCode: string;
@@ -639,8 +637,7 @@ describe("K8 · Mass assignment protection", () => {
     // Owner setup
     const ownerResult = await newUser();
     cleanupIds.push(ownerResult.userId);
-    const { jar: ownerJarResult, renterID } = await asOwner(ownerResult.jar);
-    ownerJar = ownerJarResult;
+    const { renterID } = await asOwner(ownerResult.jar);
     const vehicle = await createApprovedVehicle(renterID, { pricePerDay });
     listingCode = vehicle.listingCode;
 
