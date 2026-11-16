@@ -1,59 +1,45 @@
-"use client";
-
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Icon } from "@iconify/react";
-import { Header } from "@/components/ui/Header";
-import { SideNav } from "@/components/ui/SideNav";
-import { Breadcrumb } from "@/components/ui/Breadcrumb";
+import { notFound } from "next/navigation";
+import { requireOwnerPage } from "@/server/authz";
+import { getBookingDetail } from "@/server/bookings";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { StatusTag } from "@/components/ui/StatusTag";
+import { Breadcrumb } from "@/components/ui/Breadcrumb";
+import { BookingActions } from "@/components/owner/BookingActions";
+import { formatIDR, formatDate } from "@/lib/format";
+import { Icon } from "@iconify/react";
 
 export const dynamic = "force-dynamic";
 
-const NAV_ITEMS = [
-  { label: "Overview",   href: "/dashboard/owner",           icon: "ph:squares-four" },
-  { label: "My Cars",    href: "/dashboard/owner/cars",       icon: "ph:car" },
-  { label: "Requests",   href: "/dashboard/owner/bookings",   icon: "ph:clipboard-text", badge: 2 },
-  { label: "Tracking",   href: "/dashboard/owner/tracking",   icon: "ph:map-pin" },
-  { label: "Earnings",   href: "/dashboard/owner/earnings",   icon: "ph:currency-circle-dollar" },
-  { label: "Messages",   href: "/messages",                   icon: "ph:chat-dots" },
-  { label: "Account",    href: "/account",                    icon: "ph:user" },
-];
+export default async function BookingDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const actor = await requireOwnerPage();
+  const { id } = await params;
+  const detail = await getBookingDetail(actor, id);
+  if (!detail) notFound();
 
-const BOOKING = {
-  id: "BK-1200",
-  vehicle: "2022 Toyota Avanza",
-  listingCode: "WP-7731",
-  customer: "Andi Pratama",
-  customerVerified: true,
-  startDate: "2026-11-15",
-  endDate: "2026-11-18",
-  days: 3,
-  total: 960000,
-  status: "Pending",
-  createdAt: "2026-11-12 · 14:32",
-};
+  const ownerConfirmed = ["Confirmed", "Active", "Completed"].includes(detail.status);
+  const customerVerified = detail.customerVerificationStatus === "Verified";
+  const paymentHeld =
+    detail.paymentStatus !== null &&
+    ["Held", "Released"].includes(detail.paymentStatus);
 
-function formatIDR(n: number) {
-  return `RP ${n.toLocaleString("id-ID")}`;
-}
+  const checklist = [
+    { label: "Owner confirmed",   done: ownerConfirmed },
+    { label: "Customer verified", done: customerVerified },
+    { label: "Payment held",      done: paymentHeld },
+  ];
 
-type Action = "confirmed" | "declined" | null;
-
-export default function BookingRequestDetailPage() {
-  const [action, setAction] = useState<Action>(null);
-  const [acting, setActing] = useState(false);
-
-  async function handleAction(type: "confirmed" | "declined") {
-    setActing(true);
-    await new Promise((r) => setTimeout(r, 900));
-    setAction(type);
-    setActing(false);
-  }
+  const nights = Math.round(
+    (new Date(detail.endDate).getTime() - new Date(detail.startDate).getTime()) /
+      86_400_000
+  );
 
   return (
     <>
-      <Header userName="Dimas Raharjo" userInitials="DR" />
+      <SiteHeader />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container" style={{ maxWidth: 760 }}>
@@ -61,10 +47,11 @@ export default function BookingRequestDetailPage() {
             crumbs={[
               { label: "Owner dashboard", href: "/dashboard/owner" },
               { label: "Requests", href: "/dashboard/owner/bookings" },
-              { label: BOOKING.id },
+              { label: detail.id },
             ]}
           />
 
+          {/* Page heading */}
           <div
             style={{
               borderBottom: "1px solid var(--ink)",
@@ -78,7 +65,9 @@ export default function BookingRequestDetailPage() {
             }}
           >
             <div>
-              <span className="kicker" style={{ marginBottom: 6, display: "block" }}>Booking request · {BOOKING.id}</span>
+              <span className="kicker" style={{ marginBottom: 6, display: "block" }}>
+                Booking · {detail.id}
+              </span>
               <h1
                 style={{
                   fontFamily: "var(--font-display)",
@@ -88,29 +77,46 @@ export default function BookingRequestDetailPage() {
                   color: "var(--ink)",
                 }}
               >
-                {BOOKING.vehicle}
+                {detail.make} {detail.model}
               </h1>
             </div>
-            <StatusTag status={action === "confirmed" ? "Confirmed" : action === "declined" ? "Declined" : BOOKING.status} />
+            <StatusTag status={detail.status} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr min(280px,100%)", gap: 32, alignItems: "start" }}>
-            {/* Left */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr min(280px,100%)",
+              gap: 32,
+              alignItems: "start",
+            }}
+          >
+            {/* Left column */}
             <div>
               {/* Booking details */}
               <div style={{ border: "1px solid var(--line)", marginBottom: 24 }}>
-                <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", background: "var(--hover)" }}>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid var(--line)",
+                    background: "var(--hover)",
+                  }}
+                >
                   <span className="kicker">Booking details</span>
                 </div>
                 <div style={{ padding: "0 16px" }}>
                   {[
-                    { label: "Booking ID",  value: BOOKING.id },
-                    { label: "Vehicle",     value: `${BOOKING.vehicle} · ${BOOKING.listingCode}` },
-                    { label: "Start date",  value: BOOKING.startDate },
-                    { label: "End date",    value: BOOKING.endDate },
-                    { label: "Duration",    value: `${BOOKING.days} days` },
-                    { label: "Total",       value: formatIDR(BOOKING.total) },
-                    { label: "Requested",   value: BOOKING.createdAt },
+                    { label: "Booking ID",  value: detail.id },
+                    { label: "Vehicle",     value: `${detail.vehicleYear} ${detail.make} ${detail.model} · ${detail.listingCode}` },
+                    { label: "City",        value: detail.vehicleCity },
+                    { label: "Start date",  value: formatDate(detail.startDate) },
+                    { label: "End date",    value: formatDate(detail.endDate) },
+                    { label: "Duration",    value: `${nights} night${nights !== 1 ? "s" : ""}` },
+                    { label: "Total",       value: formatIDR(detail.totalPrice) },
+                    { label: "Requested",   value: formatDate(detail.createdAt) },
+                    ...(detail.paymentStatus
+                      ? [{ label: "Payment", value: detail.paymentStatus }]
+                      : []),
                   ].map((r) => (
                     <div key={r.label} className="spec-row">
                       <span className="spec-label">{r.label}</span>
@@ -122,10 +128,23 @@ export default function BookingRequestDetailPage() {
 
               {/* Customer card */}
               <div style={{ border: "1px solid var(--line)", marginBottom: 24 }}>
-                <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", background: "var(--hover)" }}>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid var(--line)",
+                    background: "var(--hover)",
+                  }}
+                >
                   <span className="kicker">Customer</span>
                 </div>
-                <div style={{ padding: "16px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                <div
+                  style={{
+                    padding: "16px 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                  }}
+                >
                   <div
                     style={{
                       width: 40,
@@ -137,19 +156,18 @@ export default function BookingRequestDetailPage() {
                       fontFamily: "var(--font-mono)",
                       fontSize: 13,
                       fontWeight: 600,
+                      flexShrink: 0,
                     }}
                     aria-hidden="true"
                   >
-                    AP
+                    {detail.customerName.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink)" }}>{BOOKING.customer}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                      {BOOKING.customerVerified ? (
-                        <StatusTag status="Verified" />
-                      ) : (
-                        <StatusTag status="Unverified" />
-                      )}
+                    <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink)" }}>
+                      {detail.customerName}
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <StatusTag status={detail.customerVerificationStatus} />
                     </div>
                   </div>
                 </div>
@@ -157,17 +175,27 @@ export default function BookingRequestDetailPage() {
 
               {/* Precondition checklist */}
               <div style={{ border: "1px solid var(--line)", marginBottom: 24 }}>
-                <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", background: "var(--hover)" }}>
-                  <span className="kicker">Preconditions for payment</span>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid var(--line)",
+                    background: "var(--hover)",
+                  }}
+                >
+                  <span className="kicker">Checklist</span>
                 </div>
                 <div style={{ padding: "12px 16px" }}>
-                  {[
-                    { label: "Owner confirmed",             done: action === "confirmed" },
-                    { label: "Customer KTP verified",       done: true  },
-                    { label: "Customer SIM verified",       done: true  },
-                    { label: "Admin approved booking",      done: false },
-                  ].map((c) => (
-                    <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                  {checklist.map((c, i) => (
+                    <div
+                      key={c.label}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 0",
+                        borderBottom: i < checklist.length - 1 ? "1px solid var(--line)" : "none",
+                      }}
+                    >
                       <div
                         style={{
                           width: 16,
@@ -181,99 +209,84 @@ export default function BookingRequestDetailPage() {
                         }}
                         aria-hidden="true"
                       >
-                        {c.done && <Icon icon="ph:check" width={10} style={{ color: "#fff" }} />}
+                        {c.done && (
+                          <Icon icon="ph:check" width={10} style={{ color: "#fff" }} />
+                        )}
                       </div>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.07em", textTransform: "uppercase", color: c.done ? "var(--ok)" : "var(--slate)" }}>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          letterSpacing: "0.07em",
+                          textTransform: "uppercase",
+                          color: c.done ? "var(--ok)" : "var(--slate)",
+                        }}
+                      >
                         {c.label}
                       </span>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Overdue warning */}
+              {detail.overdue && (
+                <div
+                  style={{
+                    border: "1px solid var(--alert)",
+                    padding: "12px 16px",
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "flex-start",
+                    marginBottom: 24,
+                  }}
+                >
+                  <Icon
+                    icon="ph:warning"
+                    width={14}
+                    style={{ color: "var(--alert)", flexShrink: 0, marginTop: 1 }}
+                    aria-hidden="true"
+                  />
+                  <p style={{ fontSize: 13, color: "var(--alert)", lineHeight: 1.6 }}>
+                    This rental is overdue. Please complete or raise a dispute.
+                  </p>
+                </div>
+              )}
+
+              {/* Open dispute warning */}
+              {detail.hasOpenDispute && (
+                <div
+                  style={{
+                    border: "1px solid var(--wait)",
+                    padding: "12px 16px",
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "flex-start",
+                    marginBottom: 24,
+                  }}
+                >
+                  <Icon
+                    icon="ph:scales"
+                    width={14}
+                    style={{ color: "var(--wait)", flexShrink: 0, marginTop: 1 }}
+                    aria-hidden="true"
+                  />
+                  <p style={{ fontSize: 13, color: "var(--wait)", lineHeight: 1.6 }}>
+                    An open dispute exists on this booking. Payout release is blocked until it is resolved.
+                  </p>
+                </div>
+              )}
             </div>
 
-            {/* Right — action card */}
-            <div style={{ border: "1px solid var(--ink)", background: "var(--surface)" }}>
-              <div style={{ borderBottom: "1px solid var(--ink)", padding: "14px 18px" }}>
-                <span className="kicker">Your decision</span>
-              </div>
-              <div style={{ padding: "20px 18px" }}>
-                <AnimatePresence mode="wait">
-                  {action ? (
-                    <motion.div
-                      key="done"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      style={{ textAlign: "center", padding: "12px 0" }}
-                    >
-                      <div
-                        style={{
-                          width: 44,
-                          height: 44,
-                          border: `1px solid ${action === "confirmed" ? "var(--ok)" : "var(--alert)"}`,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          margin: "0 auto 12px",
-                        }}
-                      >
-                        <Icon
-                          icon={action === "confirmed" ? "ph:check" : "ph:x"}
-                          width={22}
-                          style={{ color: action === "confirmed" ? "var(--ok)" : "var(--alert)" }}
-                        />
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: "var(--font-display)",
-                          fontSize: 17,
-                          fontWeight: 700,
-                          color: "var(--ink)",
-                          marginBottom: 6,
-                        }}
-                      >
-                        {action === "confirmed" ? "Booking confirmed" : "Booking declined"}
-                      </div>
-                      <p style={{ color: "var(--slate)", fontSize: 13, lineHeight: 1.6 }}>
-                        {action === "confirmed"
-                          ? "The customer can now proceed to payment."
-                          : "The customer has been notified."}
-                      </p>
-                    </motion.div>
-                  ) : (
-                    <motion.div key="actions" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                      <p style={{ fontSize: 13, color: "var(--slate)", lineHeight: 1.6, marginBottom: 20 }}>
-                        Confirm to allow the customer to proceed to payment. Decline if dates don&apos;t work.
-                      </p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        <button
-                          onClick={() => handleAction("confirmed")}
-                          disabled={acting}
-                          className="btn btn-primary"
-                          style={{ height: 44, width: "100%" }}
-                        >
-                          {acting ? <Icon icon="ph:spinner" width={16} className="animate-spin" /> : (
-                            <>
-                              <Icon icon="ph:check" width={14} aria-hidden="true" />
-                              Confirm booking
-                            </>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => handleAction("declined")}
-                          disabled={acting}
-                          className="btn btn-danger"
-                          style={{ height: 44, width: "100%" }}
-                        >
-                          <Icon icon="ph:x" width={14} aria-hidden="true" />
-                          Decline
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
+            {/* Right column — actions */}
+            <BookingActions
+              bookingId={detail.id}
+              paymentId={detail.paymentId}
+              status={detail.status}
+              paymentStatus={detail.paymentStatus}
+              hasOpenDispute={detail.hasOpenDispute}
+              startDate={detail.startDate}
+            />
           </div>
         </div>
       </main>
