@@ -1,48 +1,91 @@
-import { Header } from "@/components/ui/Header";
-import { Breadcrumb } from "@/components/ui/Breadcrumb";
-import { StatusTag } from "@/components/ui/StatusTag";
-import { Icon } from "@iconify/react";
-import Link from "next/link";
-
 export const dynamic = "force-dynamic";
 
-const TRIP = {
-  id: "BK-1182",
-  vehicle: "2022 Toyota Avanza",
-  listingCode: "WP-7731",
-  city: "Jakarta",
-  owner: "Dimas Raharjo",
-  startDate: "2026-11-10",
-  endDate: "2026-11-13",
-  days: 3,
-  pricePerDay: 320000,
-  total: 960000,
-  platformFee: 48000,
-  ownerPayout: 912000,
-  status: "Active",
-  paymentStatus: "Held",
-  locationConsent: true,
-  lat: -6.2088,
-  lng: 106.8456,
-};
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import { Icon } from "@iconify/react";
+import { SiteHeader } from "@/components/ui/SiteHeader";
+import { Breadcrumb } from "@/components/ui/Breadcrumb";
+import { StatusTag } from "@/components/ui/StatusTag";
+import { LocationReporter } from "@/components/trips/LocationReporter";
+import { requireUserPage } from "@/server/authz";
+import { getBookingDetail } from "@/server/bookings";
+import { ownerPayout } from "@/lib/money";
+import { formatIDR, formatDate } from "@/lib/format";
 
-function formatIDR(n: number) {
-  return `RP ${n.toLocaleString("id-ID")}`;
-}
+export default async function TripDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const actor = await requireUserPage();
+  const { id } = await params;
+  const booking = await getBookingDetail(actor, id);
+  if (!booking) notFound();
 
-export default function TripDetailPage() {
-  const isActive = TRIP.status === "Active";
+  const { fee, payout } = ownerPayout(booking.totalPrice);
+
+  const startDate = formatDate(booking.startDate);
+  const endDate = formatDate(booking.endDate);
+  const createdAt = formatDate(booking.createdAt);
+
+  const isCustomer = booking.viewerRole === "customer";
+  const isOwner = booking.viewerRole === "owner";
+
+  const showDispute = ["Confirmed", "Active", "Completed"].includes(booking.status);
+  const showLocation =
+    isCustomer && booking.status === "Active" && booking.locationConsent;
+
+  // Derive which timeline steps are complete from the current booking state
+  const statusIn = (...s: string[]) => s.includes(booking.status);
+  const paymentHeldOrReleased =
+    booking.paymentStatus === "Held" || booking.paymentStatus === "Released";
+  const escrowReleased = booking.paymentStatus === "Released";
+
+  const steps = [
+    {
+      label: "Booking requested",
+      date: createdAt,
+      done: true,
+    },
+    {
+      label: "Owner confirmed",
+      date: statusIn("Confirmed", "Active", "Completed") ? "Confirmed" : "Awaiting owner",
+      done: statusIn("Confirmed", "Active", "Completed"),
+    },
+    {
+      label: "Payment into escrow",
+      date: paymentHeldOrReleased ? "Payment held" : "Awaiting payment",
+      done: paymentHeldOrReleased,
+    },
+    {
+      label: "Trip started",
+      date: statusIn("Active", "Completed") ? "Active" : `Expected ${startDate}`,
+      done: statusIn("Active", "Completed"),
+    },
+    {
+      label: "Safe return",
+      date: statusIn("Completed") ? "Completed" : `Expected ${endDate}`,
+      done: statusIn("Completed"),
+    },
+    {
+      label: "Escrow released",
+      date: escrowReleased ? "Released" : "On safe return",
+      done: escrowReleased,
+    },
+  ];
+
+  const dashboardHref = isOwner ? "/dashboard/owner" : "/dashboard/customer";
 
   return (
     <>
-      <Header userName="Andi Pratama" userInitials="AP" />
+      <SiteHeader variant="default" />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container" style={{ maxWidth: 820 }}>
           <Breadcrumb
             crumbs={[
-              { label: "Dashboard", href: "/dashboard/customer" },
-              { label: `Trip ${TRIP.id}` },
+              { label: "Dashboard", href: dashboardHref },
+              { label: `Trip ${booking.id}` },
             ]}
           />
 
@@ -60,8 +103,11 @@ export default function TripDetailPage() {
             }}
           >
             <div>
-              <span className="kicker" style={{ marginBottom: 6, display: "block" }}>
-                Trip receipt · {TRIP.id}
+              <span
+                className="kicker"
+                style={{ marginBottom: 6, display: "block" }}
+              >
+                Trip receipt · {booking.id}
               </span>
               <h1
                 style={{
@@ -72,16 +118,47 @@ export default function TripDetailPage() {
                   color: "var(--ink)",
                 }}
               >
-                {TRIP.vehicle}
+                {booking.vehicleYear} {booking.make} {booking.model}
               </h1>
             </div>
-            <StatusTag status={TRIP.status} />
+            <StatusTag status={booking.status} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr min(300px,100%)", gap: 32, alignItems: "start" }}>
+          {/* Overdue banner */}
+          {booking.overdue && (
+            <div
+              style={{
+                border: "1px solid var(--alert)",
+                padding: "10px 16px",
+                marginBottom: 24,
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <Icon
+                icon="ph:warning"
+                width={16}
+                style={{ color: "var(--alert)", flexShrink: 0 }}
+                aria-hidden="true"
+              />
+              <span style={{ fontSize: 13, color: "var(--alert)" }}>
+                This booking is <strong>overdue</strong> — the return date has passed.
+              </span>
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr min(300px,100%)",
+              gap: 32,
+              alignItems: "start",
+            }}
+          >
             {/* Left col */}
             <div>
-              {/* Timeline / status steps */}
+              {/* Booking timeline */}
               <div style={{ marginBottom: 36 }}>
                 <h2
                   style={{
@@ -97,25 +174,19 @@ export default function TripDetailPage() {
                 >
                   Booking timeline
                 </h2>
-                {[
-                  { label: "Booking requested",   date: "2026-11-08 · 09:12", done: true  },
-                  { label: "Owner confirmed",      date: "2026-11-08 · 10:45", done: true  },
-                  { label: "Payment into escrow",  date: "2026-11-09 · 14:00", done: true  },
-                  { label: "Trip started",         date: "2026-11-10 · 08:30", done: true  },
-                  { label: "Safe return",          date: "Expected 2026-11-13", done: false },
-                  { label: "Escrow released",      date: "On safe return",     done: false },
-                ].map((step, i) => (
+
+                {steps.map((step, i) => (
                   <div
                     key={step.label}
                     style={{
                       display: "flex",
                       gap: 16,
-                      paddingBottom: i < 5 ? 20 : 0,
+                      paddingBottom: i < steps.length - 1 ? 20 : 0,
                       position: "relative",
                     }}
                   >
                     {/* Connector line */}
-                    {i < 5 && (
+                    {i < steps.length - 1 && (
                       <div
                         style={{
                           position: "absolute",
@@ -139,10 +210,24 @@ export default function TripDetailPage() {
                       aria-hidden="true"
                     />
                     <div>
-                      <div style={{ fontFamily: "var(--font-body)", fontSize: 14, fontWeight: 500, color: step.done ? "var(--ink)" : "var(--slate)" }}>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-body)",
+                          fontSize: 14,
+                          fontWeight: 500,
+                          color: step.done ? "var(--ink)" : "var(--slate)",
+                        }}
+                      >
                         {step.label}
                       </div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)", marginTop: 2 }}>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          color: "var(--slate)",
+                          marginTop: 2,
+                        }}
+                      >
                         {step.date}
                       </div>
                     </div>
@@ -150,150 +235,100 @@ export default function TripDetailPage() {
                 ))}
               </div>
 
-              {/* Location tracking panel */}
-              <div style={{ border: "1px solid var(--line)", marginBottom: 28 }}>
-                <div
-                  style={{
-                    padding: "12px 16px",
-                    borderBottom: "1px solid var(--line)",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 11,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      color: "var(--slate)",
-                    }}
-                  >
-                    Location tracking
-                  </span>
-                  {TRIP.locationConsent ? (
-                    <span className="tag" style={{ color: "var(--ok)" }}>
-                      <span className="dot animate-pulse-dot" style={{ background: "var(--ok)" }} />
-                      Consent active
-                    </span>
-                  ) : (
-                    <span className="tag" style={{ color: "var(--done)" }}>
-                      <span className="dot" style={{ background: "var(--done)" }} />
-                      Disabled
-                    </span>
-                  )}
-                </div>
-                {/* Map placeholder */}
-                <div
-                  style={{
-                    height: 180,
-                    background: "var(--thumb)",
-                    position: "relative",
-                    overflow: "hidden",
-                  }}
-                >
-                  {/* SVG flat map */}
-                  <svg width="100%" height="100%" style={{ opacity: 0.6 }}>
-                    {/* Road grid */}
-                    {[0,1,2,3,4,5].map((i) => (
-                      <line key={`h${i}`} x1="0" y1={30*i+10} x2="100%" y2={30*i+10} stroke="var(--line)" strokeWidth="1" />
-                    ))}
-                    {[0,1,2,3,4,5,6,7,8,9].map((i) => (
-                      <line key={`v${i}`} x1={60*i+10} y1="0" x2={60*i+10} y2="100%" stroke="var(--line)" strokeWidth="1" />
-                    ))}
-                  </svg>
-                  {/* Location marker */}
-                  {isActive && TRIP.locationConsent && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: "50%",
-                        top: "50%",
-                      }}
-                    >
-                      {/* Ping ring */}
-                      <div
-                        className="animate-ping-radar"
-                        style={{
-                          position: "absolute",
-                          width: 36,
-                          height: 36,
-                          border: "1.5px solid var(--accent)",
-                        }}
-                        aria-hidden="true"
-                      />
-                      {/* Square marker */}
-                      <div
-                        style={{
-                          position: "absolute",
-                          width: 10,
-                          height: 10,
-                          background: "var(--accent)",
-                          transform: "translate(-50%, -50%)",
-                        }}
-                        aria-label="Current vehicle location"
-                        role="img"
-                      />
-                    </div>
-                  )}
+              {/* Location tracking panel — customer only, Active + consent */}
+              {showLocation && (
+                <div style={{ border: "1px solid var(--line)", marginBottom: 28 }}>
                   <div
                     style={{
-                      position: "absolute",
-                      bottom: 8,
-                      left: 10,
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      color: "var(--slate)",
-                      letterSpacing: "0.06em",
+                      padding: "12px 16px",
+                      borderBottom: "1px solid var(--line)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                     }}
                   >
-                    {TRIP.lat.toFixed(4)}, {TRIP.lng.toFixed(4)}
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 11,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "var(--slate)",
+                      }}
+                    >
+                      Location tracking
+                    </span>
+                    <LocationReporter bookingId={id} />
+                  </div>
+                  <div
+                    style={{
+                      padding: "12px 16px",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      color: "var(--slate)",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    Your location is being shared with the vehicle owner while your
+                    trip is active.
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Actions */}
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {isActive && (
+              {/* Dispute link */}
+              {showDispute && (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <Link
-                    href={`/disputes/raise/${TRIP.id}`}
+                    href={`/disputes/raise/${id}`}
                     className="btn btn-danger"
                     style={{ fontSize: 11 }}
                   >
                     <Icon icon="ph:flag" width={14} aria-hidden="true" />
                     Raise a dispute
                   </Link>
-                )}
-                <button className="btn btn-ghost" style={{ fontSize: 11 }}>
-                  <Icon icon="ph:download-simple" width={14} aria-hidden="true" />
-                  Download receipt
-                </button>
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Right col — receipt */}
             <div>
-              <div style={{ border: "1px solid var(--ink)", background: "var(--surface)" }}>
-                <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--ink)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div
+                style={{
+                  border: "1px solid var(--ink)",
+                  background: "var(--surface)",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "16px 18px",
+                    borderBottom: "1px solid var(--ink)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
                   <span className="kicker">Receipt</span>
-                  <StatusTag status={TRIP.paymentStatus} />
+                  {booking.paymentStatus && (
+                    <StatusTag status={booking.paymentStatus} />
+                  )}
                 </div>
+
                 <div style={{ padding: "16px 18px" }}>
                   {[
-                    { label: "Booking",    value: TRIP.id },
-                    { label: "Vehicle",    value: TRIP.listingCode },
-                    { label: "Owner",      value: TRIP.owner },
-                    { label: "Start",      value: TRIP.startDate },
-                    { label: "End",        value: TRIP.endDate },
-                    { label: "Duration",   value: `${TRIP.days} days` },
-                    { label: "Rate",       value: formatIDR(TRIP.pricePerDay) + "/d" },
+                    { label: "Booking",  value: booking.id },
+                    { label: "Vehicle",  value: booking.listingCode },
+                    { label: "City",     value: booking.vehicleCity },
+                    { label: "Type",     value: booking.vehicleType },
+                    { label: "Customer", value: booking.customerName },
+                    { label: "Start",    value: startDate },
+                    { label: "End",      value: endDate },
                   ].map((r) => (
                     <div key={r.label} className="spec-row">
                       <span className="spec-label">{r.label}</span>
                       <span className="spec-value">{r.value}</span>
                     </div>
                   ))}
+
                   <div
                     style={{
                       borderTop: "2px solid var(--ink)",
@@ -304,11 +339,24 @@ export default function TripDetailPage() {
                       alignItems: "baseline",
                     }}
                   >
-                    <span className="spec-label" style={{ color: "var(--ink)", fontWeight: 700 }}>Total paid</span>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, color: "var(--ink)" }}>
-                      {formatIDR(TRIP.total)}
+                    <span
+                      className="spec-label"
+                      style={{ color: "var(--ink)", fontWeight: 700 }}
+                    >
+                      Total
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 18,
+                        fontWeight: 600,
+                        color: "var(--ink)",
+                      }}
+                    >
+                      {formatIDR(booking.totalPrice)}
                     </span>
                   </div>
+
                   <div
                     style={{
                       marginTop: 10,
@@ -317,10 +365,20 @@ export default function TripDetailPage() {
                       border: "1px solid var(--line)",
                     }}
                   >
-                    <div className="kicker" style={{ marginBottom: 4 }}>Escrow breakdown</div>
-                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)", lineHeight: 1.8 }}>
-                      Platform fee (5%): {formatIDR(TRIP.platformFee)}<br />
-                      Owner receives: {formatIDR(TRIP.ownerPayout)}
+                    <div className="kicker" style={{ marginBottom: 4 }}>
+                      Escrow breakdown
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 11,
+                        color: "var(--slate)",
+                        lineHeight: 1.8,
+                      }}
+                    >
+                      Platform fee (5%): {formatIDR(fee)}
+                      <br />
+                      Owner receives: {formatIDR(payout)}
                     </div>
                   </div>
                 </div>
