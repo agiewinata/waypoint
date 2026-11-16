@@ -9,6 +9,7 @@ export default defineConfig({
     include: ["tests/integration/**/*.test.ts"],
     environment: "node",
     pool: "vmForks",
+    fileParallelism: false,
     sequence: { concurrent: false },
     setupFiles: ["dotenv/config"],
   },
