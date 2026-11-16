@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect, notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getProfilesForUser } from "@/server/profiles";
-import type { Renter, Rentee, Admin, User } from "@/generated/prisma/client";
+import type { Profile, Renter, Rentee, Admin, User } from "@/generated/prisma/client";
 import { HttpError } from "@/server/http";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +11,7 @@ import { HttpError } from "@/server/http";
 
 export interface Actor {
   user: User;
+  profile: Profile | null;
   renter: Renter | null;
   rentee: Rentee | null;
   admin: Admin | null;

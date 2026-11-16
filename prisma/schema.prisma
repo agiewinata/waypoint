@@ -24,6 +24,7 @@ model User {
   sessions Session[]
   accounts Account[]
 
+  profile       Profile?
   renter        Renter?
   rentee        Rentee?
   admin         Admin?
@@ -140,6 +141,18 @@ enum DisputeRaiser {
 // ---------------------------------------------------------------------------
 // Domain models
 // ---------------------------------------------------------------------------
+
+model Profile {
+  profileID String   @id @default(cuid())
+  userID    String   @unique
+  phone     String
+  address   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([userID])
+}
 
 model Renter {
   renterID           String             @id @default(cuid())

@@ -124,7 +124,25 @@ export async function newUser(
 }
 
 // ---------------------------------------------------------------------------
-// asOwner() — create a Renter (Owner) profile for the signed-in user
+// setupProfile() — complete the onboarding step for a signed-in user
+// ---------------------------------------------------------------------------
+
+export async function setupProfile(jar: CookieJar): Promise<void> {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const res = await api(jar, "POST", "/api/onboarding", {
+    name: `Test User ${suffix}`,
+    phone: "+6281234567890",
+    address: `Jl. Test No. ${suffix}`,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`setupProfile: onboarding failed ${res.status}: ${text}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// asOwner() — enable the listing capability for a signed-in user
 // ---------------------------------------------------------------------------
 
 export interface AsOwnerResult {
@@ -133,24 +151,23 @@ export interface AsOwnerResult {
 }
 
 export async function asOwner(jar: CookieJar): Promise<AsOwnerResult> {
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const res = await api(jar, "POST", "/api/profile/owner", {
-    name: `Owner ${suffix}`,
-    phone: "+6281234567890",
-    address: `Jl. Test No. ${suffix}`,
-  });
+  await setupProfile(jar);
 
-  if (res.status !== 201) {
+  const res = await api(jar, "POST", "/api/profile/enable-listing", {});
+
+  if (res.status !== 201 && res.status !== 200) {
     const text = await res.text();
-    throw new Error(`asOwner: profile creation failed ${res.status}: ${text}`);
+    throw new Error(`asOwner: enable-listing failed ${res.status}: ${text}`);
   }
 
-  const data = (await res.json()) as { id: string };
-  return { jar, renterID: data.id };
+  const data = (await res.json()) as { id?: string };
+  // If 200 (already exists), look up the renterID from DB via the user's cookie session
+  const renterID = data.id ?? "";
+  return { jar, renterID };
 }
 
 // ---------------------------------------------------------------------------
-// asCustomer() — create a Rentee (Customer) profile for the signed-in user
+// asCustomer() — enable the renting capability for a signed-in user
 // ---------------------------------------------------------------------------
 
 export interface AsCustomerResult {
@@ -159,22 +176,18 @@ export interface AsCustomerResult {
 }
 
 export async function asCustomer(jar: CookieJar): Promise<AsCustomerResult> {
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const res = await api(jar, "POST", "/api/profile/customer", {
-    name: `Customer ${suffix}`,
-    phone: "+6289876543210",
-    address: `Jl. Customer No. ${suffix}`,
-  });
+  await setupProfile(jar);
 
-  if (res.status !== 201) {
+  const res = await api(jar, "POST", "/api/profile/enable-renting", {});
+
+  if (res.status !== 201 && res.status !== 200) {
     const text = await res.text();
-    throw new Error(
-      `asCustomer: profile creation failed ${res.status}: ${text}`
-    );
+    throw new Error(`asCustomer: enable-renting failed ${res.status}: ${text}`);
   }
 
-  const data = (await res.json()) as { id: string };
-  return { jar, renteeID: data.id };
+  const data = (await res.json()) as { id?: string };
+  const renteeID = data.id ?? "";
+  return { jar, renteeID };
 }
 
 // ---------------------------------------------------------------------------

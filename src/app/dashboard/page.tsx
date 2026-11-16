@@ -81,7 +81,7 @@ export default async function DashboardPage() {
             gap: 16,
           }}
         >
-          {/* Owner card */}
+          {/* List my car card */}
           {renter ? (
             <Link
               href="/dashboard/owner"
@@ -106,7 +106,7 @@ export default async function DashboardPage() {
                     alignItems: "center",
                   }}
                 >
-                  Owner
+                  List my car
                   <StatusTag status={renter.verificationStatus} />
                 </div>
                 <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
@@ -142,10 +142,10 @@ export default async function DashboardPage() {
                     marginBottom: 4,
                   }}
                 >
-                  Become an Owner
+                  List my car
                 </div>
                 <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
-                  List your car and start earning.
+                  Enable this to list your car and start earning.
                 </div>
               </div>
               <Icon
@@ -157,7 +157,7 @@ export default async function DashboardPage() {
             </Link>
           )}
 
-          {/* Customer card */}
+          {/* Rent a car card */}
           {rentee ? (
             <Link
               href="/dashboard/customer"
@@ -182,7 +182,7 @@ export default async function DashboardPage() {
                     alignItems: "center",
                   }}
                 >
-                  Customer
+                  Rent a car
                   <StatusTag status={rentee.verificationStatus} />
                 </div>
                 <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
@@ -218,10 +218,10 @@ export default async function DashboardPage() {
                     marginBottom: 4,
                   }}
                 >
-                  Create Customer profile
+                  Rent a car
                 </div>
                 <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
-                  Rent vehicles and track your trips.
+                  Enable this to browse and book available cars.
                 </div>
               </div>
               <Icon
