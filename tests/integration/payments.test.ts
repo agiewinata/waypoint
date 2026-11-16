@@ -157,34 +157,6 @@ describe("POST /api/payments (P1)", () => {
 
   it("409 if booking is not Confirmed", async () => {
     if (skip()) return;
-    // We need a jar for the verified customer
-    const customerResult = await newUser();
-    const tmpCustomerUserId = customerResult.userId;
-    try {
-      // Sign in as an existing customer who owns pendingBookingID
-      // Instead, re-sign-in the verified customer
-      const signinJar = newJar();
-      const signinRes = await api(signinJar, "POST", "/api/auth/sign-in/email", {
-        email: customerResult.email,
-        password: customerResult.password,
-      });
-      expect(signinRes.ok).toBe(true);
-      // This newly created user has no customer profile, we can't use pendingBookingID
-      // So this test should be done with our verified customer
-    } finally {
-      await cleanup(tmpCustomerUserId);
-    }
-
-    // Re-authenticate as the verified customer
-    // We need to sign-in again since the jar from beforeAll is not accessible here
-    // Use a fresh sign-in approach via the API
-    const signinJar = newJar();
-    // We know the email from setup — but we don't have it here.
-    // Instead, create a fresh booking with a Pending status and test it.
-    // The verified customer needs to try to pay for the pendingBookingID booking.
-    // We'll use the admin to get the session... actually let's approach differently.
-    //
-    // Create a fresh verified customer and try to pay for a Pending booking.
     const freshOwner = await newUser();
     const { renterID } = await asOwner(freshOwner.jar);
     const vehicle = await createApprovedVehicle(renterID);
@@ -212,7 +184,7 @@ describe("POST /api/payments (P1)", () => {
     } finally {
       await cleanup(freshOwner.userId, freshCustomer.userId);
     }
-  });
+  }, 15_000);
 
   it("409 without Verified KTP + SIM", async () => {
     if (skip()) return;

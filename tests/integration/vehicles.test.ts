@@ -23,15 +23,18 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Generate a valid 17-char VIN (no I/O/Q) */
+/** Generate a valid 17-char VIN — excludes I, O, Q per standard and per the VIN regex */
 function randomVin(): string {
-  const chars = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const chars = "0123456789ABCDEFGHJKLMNPRSTUVWXYZ";
   return Array.from({ length: 17 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 /** Generate a plate number in valid format */
 function randomPlate(): string {
-  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 3).toUpperCase();
+  const letters = "ABCDEFGHJKLMNPRSTUVWXYZ";
+  const suffix = Array.from({ length: 3 }, () =>
+    letters[Math.floor(Math.random() * letters.length)]
+  ).join("");
   const digits = String(Math.floor(Math.random() * 9000) + 1000);
   return `B ${digits} ${suffix}`;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Icon } from "@iconify/react";
@@ -54,7 +54,9 @@ export function BrowseClient({
 
   // Ref to hold latest filter values for use in debounce effects
   const filterRef = useRef({ city, type, q, minPrice, maxPrice });
-  filterRef.current = { city, type, q, minPrice, maxPrice };
+  useLayoutEffect(() => {
+    filterRef.current = { city, type, q, minPrice, maxPrice };
+  });
 
   /** Navigate to browse with updated filter params, resetting page to 1. */
   function navigate(overrides: Record<string, string | number | undefined>) {

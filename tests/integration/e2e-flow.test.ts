@@ -121,7 +121,7 @@ async function uploadDocument(
 
 /** Generate a valid 17-char VIN (no I/O/Q) */
 function randomVin(): string {
-  const chars = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const chars = "0123456789ABCDEFGHJKLMNPRSTUVWXYZ";
   return Array.from({ length: 17 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 

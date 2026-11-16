@@ -145,7 +145,7 @@ export function AuthForm({ mode }: AuthFormProps) {
               lineHeight: 1.6,
             }}
           >
-            "Rented my car out 12 times last month. Every payout arrived on time."
+            &ldquo;Rented my car out 12 times last month. Every payout arrived on time.&rdquo;
           </div>
           <div className="kicker" style={{ color: "rgba(255,255,255,0.4)", marginTop: 10 }}>
             — Dimas R., Owner · Jakarta

@@ -14,7 +14,9 @@ type ReporterStatus = "idle" | "sharing" | "denied" | "off";
  * response (booking no longer active).
  */
 export function LocationReporter({ bookingId }: LocationReporterProps) {
-  const [status, setStatus] = useState<ReporterStatus>("idle");
+  const [status, setStatus] = useState<ReporterStatus>(() =>
+    typeof navigator !== "undefined" && !("geolocation" in navigator) ? "off" : "idle"
+  );
   const watchIdRef = useRef<number | null>(null);
   const lastSentRef = useRef<number>(0);
   // Ref so the async sendLocation callback always reads the latest value
@@ -22,7 +24,6 @@ export function LocationReporter({ bookingId }: LocationReporterProps) {
 
   useEffect(() => {
     if (!("geolocation" in navigator)) {
-      setStatus("off");
       return;
     }
 
