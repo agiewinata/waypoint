@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/ui/SiteHeader";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { LocationReporter } from "@/components/trips/LocationReporter";
+import { CancelBookingButton } from "@/components/booking/CancelBookingButton";
 import { requireUserPage } from "@/server/authz";
 import { getBookingDetail } from "@/server/bookings";
 import { ownerPayout } from "@/lib/money";
@@ -51,6 +52,11 @@ export default async function TripDetailPage({
       label: "Owner confirmed",
       date: statusIn("Confirmed", "Active", "Completed") ? "Confirmed" : "Awaiting owner",
       done: statusIn("Confirmed", "Active", "Completed"),
+    },
+    {
+      label: "Admin approved",
+      date: booking.adminApproved ? "Approved" : "Awaiting Waypoint",
+      done: booking.adminApproved,
     },
     {
       label: "Payment into escrow",
@@ -275,6 +281,13 @@ export default async function TripDetailPage({
                 </div>
               )}
 
+              {/* Refund guidance — Confirmed with payment held cannot be cancelled */}
+              {booking.status === "Confirmed" && booking.paymentStatus === "Held" && (
+                <p style={{ fontSize: 13, color: "var(--slate)", lineHeight: 1.6, marginBottom: 16 }}>
+                  Your payment is held in escrow. To request a refund, raise a dispute so an admin can review it.
+                </p>
+              )}
+
               {/* Dispute link */}
               {showDispute && (
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -286,6 +299,13 @@ export default async function TripDetailPage({
                     <Icon icon="ph:flag" width={14} aria-hidden="true" />
                     Raise a dispute
                   </Link>
+                </div>
+              )}
+
+              {/* Cancel — only when the server reports the booking is cancellable */}
+              {isCustomer && booking.canCancel && (
+                <div style={{ marginTop: 16 }}>
+                  <CancelBookingButton bookingId={id} />
                 </div>
               )}
             </div>
