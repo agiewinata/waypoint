@@ -1,8 +1,13 @@
 import { db } from "@/lib/db";
 import { toRupiah } from "@/lib/money";
 import { HttpError, isPrismaError } from "@/server/http";
-import type { VehicleCreateInputType, VehicleSearchQueryType } from "@/lib/validation/vehicle";
+import type {
+  VehicleCreateInputType,
+  VehicleSearchQueryType,
+  VehicleUpdateFields,
+} from "@/lib/validation/vehicle";
 import { Prisma } from "@/generated/prisma/client";
+import type { DocumentType, VerificationStatus } from "@/generated/prisma/client";
 
 // ---------------------------------------------------------------------------
 // DTOs — no Prisma models leave this module; all Decimal/Date are primitives
@@ -17,6 +22,7 @@ export interface PublicVehicle {
   city: string;
   pricePerDay: number;
   ownerFirstName: string;
+  ownerVerified: boolean;
 }
 
 export interface OwnerVehicle {
@@ -31,6 +37,39 @@ export interface OwnerVehicle {
   vin: string;
   plateNumber: string;
   createdAt: string;
+  ownerVerified: boolean;
+}
+
+export type OwnerVehicleDetail = OwnerVehicle & {
+  docs: { id: string; type: DocumentType; status: VerificationStatus; createdAt: Date }[];
+  editable: "all" | "price" | "none";
+};
+
+type VehicleWithRenter = Prisma.VehicleGetPayload<{
+  include: { renter: { select: { verificationStatus: true } } };
+}>;
+
+function toOwnerVehicle(v: VehicleWithRenter): OwnerVehicle {
+  return {
+    listingCode: v.listingCode,
+    make: v.make,
+    model: v.model,
+    year: v.year,
+    type: v.type,
+    city: v.city,
+    pricePerDay: toRupiah(v.pricePerDay),
+    status: v.status,
+    vin: v.VIN,
+    plateNumber: v.plateNumber,
+    createdAt: v.createdAt.toISOString(),
+    ownerVerified: v.renter.verificationStatus === "Verified",
+  };
+}
+
+function editableFor(status: string): "all" | "price" | "none" {
+  if (status === "Approved") return "price";
+  if (status === "Pending") return "none";
+  return "all";
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +119,7 @@ export async function listPublicVehicles(
   const [vehicles, total] = await Promise.all([
     db.vehicle.findMany({
       where,
-      include: { renter: { select: { name: true } } },
+      include: { renter: { select: { name: true, verificationStatus: true } } },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -98,6 +137,7 @@ export async function listPublicVehicles(
     pricePerDay: toRupiah(v.pricePerDay),
     // First word of the renter's name as the "first name"
     ownerFirstName: v.renter.name.split(" ")[0] ?? v.renter.name,
+    ownerVerified: v.renter.verificationStatus === "Verified",
   }));
 
   return { items, page, pageSize, total };
@@ -112,7 +152,7 @@ export async function getPublicVehicle(
 ): Promise<PublicVehicle | null> {
   const v = await db.vehicle.findFirst({
     where: { listingCode, status: "Approved", pricePerDay: { gt: 0 } },
-    include: { renter: { select: { name: true } } },
+    include: { renter: { select: { name: true, verificationStatus: true } } },
   });
   if (!v) return null;
   return {
@@ -124,6 +164,7 @@ export async function getPublicVehicle(
     city: v.city,
     pricePerDay: toRupiah(v.pricePerDay),
     ownerFirstName: v.renter.name.split(" ")[0] ?? v.renter.name,
+    ownerVerified: v.renter.verificationStatus === "Verified",
   };
 }
 
@@ -136,24 +177,45 @@ export async function listVehiclesForOwner(
 ): Promise<{ items: OwnerVehicle[] }> {
   const vehicles = await db.vehicle.findMany({
     where: { renterID },
+    include: { renter: { select: { verificationStatus: true } } },
     orderBy: { createdAt: "desc" },
   });
 
-  const items: OwnerVehicle[] = vehicles.map((v) => ({
-    listingCode: v.listingCode,
-    make: v.make,
-    model: v.model,
-    year: v.year,
-    type: v.type,
-    city: v.city,
-    pricePerDay: toRupiah(v.pricePerDay),
-    status: v.status,
-    vin: v.VIN,
-    plateNumber: v.plateNumber,
-    createdAt: v.createdAt.toISOString(),
-  }));
+  const items: OwnerVehicle[] = vehicles.map(toOwnerVehicle);
 
   return { items };
+}
+
+// ---------------------------------------------------------------------------
+// A2 single: one vehicle owned by this renter, with its documents (all types)
+// ---------------------------------------------------------------------------
+
+export async function getOwnerVehicle(
+  renterID: string,
+  listingCode: string
+): Promise<OwnerVehicleDetail | null> {
+  const v = await db.vehicle.findFirst({
+    where: { listingCode, renterID },
+    include: {
+      renter: { select: { verificationStatus: true } },
+      documents: {
+        select: { documentID: true, type: true, verificationStatus: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+  if (!v) return null;
+
+  return {
+    ...toOwnerVehicle(v),
+    docs: v.documents.map((d) => ({
+      id: d.documentID,
+      type: d.type,
+      status: d.verificationStatus,
+      createdAt: d.createdAt,
+    })),
+    editable: editableFor(v.status),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,19 +306,23 @@ export async function submitVehicle(
     throw new HttpError(409, "Price must be greater than 0");
   }
 
-  // Must have at least one STNK or Insurance document with status Pending or Verified
-  const docCount = await db.document.count({
-    where: {
-      vehicleVIN: vehicle.VIN,
-      type: { in: ["STNK", "Insurance"] },
-      verificationStatus: { in: ["Pending", "Verified"] },
-    },
-  });
+  // Must have BOTH an STNK and an Insurance document, each Pending or Verified
+  const [stnkCount, insuranceCount] = await Promise.all(
+    (["STNK", "Insurance"] as const).map((type) =>
+      db.document.count({
+        where: {
+          vehicleVIN: vehicle.VIN,
+          type,
+          verificationStatus: { in: ["Pending", "Verified"] },
+        },
+      })
+    )
+  );
 
-  if (docCount === 0) {
+  if (stnkCount === 0 || insuranceCount === 0) {
     throw new HttpError(
       409,
-      "Vehicle must have at least one STNK or Insurance document before submission"
+      "Vehicle must have an STNK and an Insurance document before submission"
     );
   }
 
@@ -266,4 +332,71 @@ export async function submitVehicle(
   });
 
   return { listingCode, status: "Pending" };
+}
+
+// ---------------------------------------------------------------------------
+// A4 update: edit a vehicle the owner controls, following the §3.5 status rules
+// ---------------------------------------------------------------------------
+
+const UPDATABLE_FIELDS = [
+  "make",
+  "model",
+  "year",
+  "plateNumber",
+  "type",
+  "city",
+  "pricePerDay",
+] as const;
+
+export async function updateVehicle(
+  renterID: string,
+  listingCode: string,
+  fields: VehicleUpdateFields
+): Promise<OwnerVehicle> {
+  const provided = UPDATABLE_FIELDS.filter((k) => fields[k] !== undefined);
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const vehicle = await tx.vehicle.findFirst({
+        where: { listingCode, renterID },
+        select: { status: true },
+      });
+      if (!vehicle) throw new HttpError(404, "Vehicle not found");
+
+      if (vehicle.status === "Pending") {
+        throw new HttpError(409, "Vehicle is under review and cannot be edited");
+      }
+      if (vehicle.status === "Approved" && provided.some((k) => k !== "pricePerDay")) {
+        throw new HttpError(409, "Only price can be updated for approved listings");
+      }
+
+      if (fields.plateNumber !== undefined) {
+        const plateTaken = await tx.vehicle.findFirst({
+          where: { plateNumber: fields.plateNumber, NOT: { listingCode } },
+          select: { VIN: true },
+        });
+        if (plateTaken) throw new HttpError(409, "Plate number already taken");
+      }
+
+      const updated = await tx.vehicle.update({
+        where: { listingCode },
+        data: {
+          make: fields.make,
+          model: fields.model,
+          year: fields.year,
+          plateNumber: fields.plateNumber,
+          type: fields.type,
+          city: fields.city,
+          pricePerDay: fields.pricePerDay,
+        },
+        include: { renter: { select: { verificationStatus: true } } },
+      });
+      return toOwnerVehicle(updated);
+    });
+  } catch (err) {
+    if (isPrismaError(err, "P2002")) {
+      throw new HttpError(409, "Plate number already taken");
+    }
+    throw err;
+  }
 }

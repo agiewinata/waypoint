@@ -61,37 +61,47 @@ export type VehicleType = (typeof VEHICLE_TYPES)[number];
 
 const currentYear = new Date().getFullYear();
 
+// Field schemas shared by create (A3) and update (A4)
+export const vinField = z
+  .string()
+  // Transform to uppercase first, then validate — allows lowercase input from users
+  .transform((s) => s.toUpperCase())
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^[A-HJ-NPR-Z0-9]{17}$/,
+        "VIN must be 17 alphanumeric characters (excluding I, O, Q)"
+      )
+  );
+export const makeField = z.string().min(1).max(50);
+export const modelField = z.string().min(1).max(50);
+export const yearField = z.number().int().min(1990).max(currentYear + 1);
+export const plateField = z
+  .string()
+  // Transform to uppercase first, then validate — allows lowercase input from users
+  .transform((s) => s.toUpperCase())
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^[A-Z]{1,2} \d{1,4} [A-Z]{0,3}$/,
+        "Plate number format: e.g. B 1234 ABC"
+      )
+  );
+export const typeField = z.enum(VEHICLE_TYPES);
+export const cityField = z.enum(CITIES);
+export const priceField = z.number().int().min(50_000).max(10_000_000);
+
 export const VehicleCreateInput = z.object({
-  // Transform to uppercase first, then validate — allows lowercase input from users
-  vin: z
-    .string()
-    .transform((s) => s.toUpperCase())
-    .pipe(
-      z
-        .string()
-        .regex(
-          /^[A-HJ-NPR-Z0-9]{17}$/,
-          "VIN must be 17 alphanumeric characters (excluding I, O, Q)"
-        )
-    ),
-  make: z.string().min(1).max(50),
-  model: z.string().min(1).max(50),
-  year: z.number().int().min(1990).max(currentYear + 1),
-  // Transform to uppercase first, then validate — allows lowercase input from users
-  plateNumber: z
-    .string()
-    .transform((s) => s.toUpperCase())
-    .pipe(
-      z
-        .string()
-        .regex(
-          /^[A-Z]{1,2} \d{1,4} [A-Z]{0,3}$/,
-          "Plate number format: e.g. B 1234 ABC"
-        )
-    ),
-  type: z.enum(VEHICLE_TYPES),
-  city: z.enum(CITIES),
-  pricePerDay: z.number().int().min(50_000).max(10_000_000),
+  vin: vinField,
+  make: makeField,
+  model: modelField,
+  year: yearField,
+  plateNumber: plateField,
+  type: typeField,
+  city: cityField,
+  pricePerDay: priceField,
 });
 export type VehicleCreateInputType = z.infer<typeof VehicleCreateInput>;
 
@@ -111,7 +121,42 @@ export const VehicleSearchQuery = z
   );
 export type VehicleSearchQueryType = z.infer<typeof VehicleSearchQuery>;
 
-export const VehicleSubmitInput = z.object({
-  action: z.literal("submit"),
-});
-export type VehicleSubmitInputType = z.infer<typeof VehicleSubmitInput>;
+// Optional editable fields for A4 update. Identity and status fields (vin,
+// status, renterID, approvedByAdminID) are not listed, so zod strips them.
+const updateFieldsShape = {
+  make: makeField.optional(),
+  model: modelField.optional(),
+  year: yearField.optional(),
+  plateNumber: plateField.optional(),
+  type: typeField.optional(),
+  city: cityField.optional(),
+  pricePerDay: priceField.optional(),
+};
+
+export const VehiclePatchInput = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("submit"),
+  }),
+  z
+    .object({
+      action: z.literal("update"),
+      ...updateFieldsShape,
+    })
+    .superRefine((d, ctx) => {
+      const hasField = Object.keys(updateFieldsShape).some(
+        (k) => d[k as keyof typeof updateFieldsShape] !== undefined
+      );
+      if (!hasField) {
+        ctx.addIssue({
+          code: "custom",
+          message: "At least one field is required",
+          path: [],
+        });
+      }
+    }),
+]);
+export type VehiclePatchInputType = z.infer<typeof VehiclePatchInput>;
+export type VehicleUpdateFields = Omit<
+  Extract<VehiclePatchInputType, { action: "update" }>,
+  "action"
+>;
