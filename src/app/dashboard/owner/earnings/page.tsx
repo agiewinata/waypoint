@@ -1,39 +1,51 @@
-import { Header } from "@/components/ui/Header";
+import { requireOwnerPage } from "@/server/authz";
+import { getOwnerEarnings } from "@/server/payments";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { SideNav } from "@/components/ui/SideNav";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { FadeIn } from "@/components/ui/AnimatedText";
+import { formatIDR, formatDate } from "@/lib/format";
 import { Icon } from "@iconify/react";
 
 export const dynamic = "force-dynamic";
 
 const NAV_ITEMS = [
-  { label: "Overview",   href: "/dashboard/owner",           icon: "ph:squares-four" },
-  { label: "My Cars",    href: "/dashboard/owner/cars",       icon: "ph:car" },
-  { label: "Requests",   href: "/dashboard/owner/bookings",   icon: "ph:clipboard-text", badge: 2 },
-  { label: "Tracking",   href: "/dashboard/owner/tracking",   icon: "ph:map-pin" },
-  { label: "Earnings",   href: "/dashboard/owner/earnings",   icon: "ph:currency-circle-dollar" },
-  { label: "Messages",   href: "/messages",                   icon: "ph:chat-dots" },
-  { label: "Account",    href: "/account",                    icon: "ph:user" },
+  { label: "Overview",  href: "/dashboard/owner",          icon: "ph:squares-four" },
+  { label: "My Cars",   href: "/dashboard/owner/cars",      icon: "ph:car" },
+  { label: "Requests",  href: "/dashboard/owner/bookings",  icon: "ph:clipboard-text" },
+  { label: "Tracking",  href: "/dashboard/owner/tracking",  icon: "ph:map-pin" },
+  { label: "Earnings",  href: "/dashboard/owner/earnings",  icon: "ph:currency-circle-dollar" },
+  { label: "Messages",  href: "/messages",                  icon: "ph:chat-dots" },
+  { label: "Account",   href: "/account",                   icon: "ph:user" },
 ];
 
-const PAYOUTS = [
-  { id: "PO-001", booking: "BK-1051", amount: 1282500, fee: 67500, gross: 1350000, date: "2026-10-23", status: "Released" },
-  { id: "PO-002", booking: "BK-0988", amount: 475000,  fee: 25000, gross: 500000,  date: "2026-09-16", status: "Released" },
-  { id: "PO-003", booking: "BK-1182", amount: 912000,  fee: 48000, gross: 960000,  date: "Pending",   status: "Held"     },
-];
-
-function formatIDR(n: number) {
-  return `RP ${n.toLocaleString("id-ID")}`;
+function getInitials(name: string | null | undefined, email: string): string {
+  const trimmed = (name ?? "").trim();
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return trimmed.slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 2).toUpperCase();
 }
 
-export default function EarningsPage() {
-  const totalReleased = PAYOUTS.filter((p) => p.status === "Released").reduce((s, p) => s + p.amount, 0);
-  const totalHeld = PAYOUTS.filter((p) => p.status === "Held").reduce((s, p) => s + p.amount, 0);
+export default async function EarningsPage() {
+  const actor = await requireOwnerPage();
+  const earnings = await getOwnerEarnings(actor.renter.renterID);
+
+  const userInitials = getInitials(actor.user.name, actor.user.email);
+
+  const kpiTiles = [
+    { label: "Held in escrow",  value: formatIDR(earnings.heldTotal),    color: "var(--active)" },
+    { label: "Released gross",  value: formatIDR(earnings.releasedGross), color: "var(--ok)"     },
+    { label: "Platform fees",   value: formatIDR(earnings.fee),           color: "var(--done)"   },
+    { label: "Net payout",      value: formatIDR(earnings.net),           color: "var(--ink)"    },
+  ];
 
   return (
     <>
-      <Header userName="Dimas Raharjo" userInitials="DR" />
+      <SiteHeader />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container">
@@ -41,15 +53,20 @@ export default function EarningsPage() {
             <div className="dashboard-sidebar">
               <SideNav
                 items={NAV_ITEMS}
-                userName="Dimas Raharjo"
+                userName={actor.user.name ?? actor.user.email}
                 userRole="Owner"
-                userInitials="DR"
+                userInitials={userInitials}
                 switchRoleHref="/dashboard/customer"
               />
             </div>
 
             <div className="dashboard-content">
-              <Breadcrumb crumbs={[{ label: "Owner dashboard", href: "/dashboard/owner" }, { label: "Earnings & payouts" }]} />
+              <Breadcrumb
+                crumbs={[
+                  { label: "Owner dashboard", href: "/dashboard/owner" },
+                  { label: "Earnings & payouts" },
+                ]}
+              />
 
               <div style={{ borderBottom: "1px solid var(--ink)", paddingBottom: 16, marginBottom: 28 }}>
                 <span className="kicker" style={{ marginBottom: 6, display: "block" }}>Owner · Financials</span>
@@ -62,7 +79,7 @@ export default function EarningsPage() {
                     color: "var(--ink)",
                   }}
                 >
-                  Earnings & payouts
+                  Earnings &amp; payouts
                 </h1>
               </div>
 
@@ -76,17 +93,12 @@ export default function EarningsPage() {
                     marginBottom: 36,
                   }}
                 >
-                  {[
-                    { label: "Total released",  value: formatIDR(totalReleased), color: "var(--ok)"     },
-                    { label: "Held in escrow",  value: formatIDR(totalHeld),     color: "var(--active)" },
-                    { label: "Platform fees",   value: formatIDR(PAYOUTS.reduce((s, p) => s + p.fee, 0)), color: "var(--done)" },
-                    { label: "Total gross",     value: formatIDR(PAYOUTS.reduce((s, p) => s + p.gross, 0)), color: "var(--ink)" },
-                  ].map((kpi, i) => (
+                  {kpiTiles.map((kpi, i) => (
                     <div
                       key={kpi.label}
                       style={{
                         padding: "18px 18px",
-                        borderRight: i < 3 ? "1px solid var(--line)" : "none",
+                        borderRight: i < kpiTiles.length - 1 ? "1px solid var(--line)" : "none",
                       }}
                     >
                       <div
@@ -120,49 +132,116 @@ export default function EarningsPage() {
                   Payout history
                 </h2>
 
-                <div style={{ border: "1px solid var(--line)" }}>
-                  {/* Table header */}
+                {earnings.payouts.length === 0 ? (
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "80px 90px 1fr 120px 120px 100px",
-                      padding: "10px 16px",
-                      borderBottom: "1px solid var(--ink)",
-                      background: "var(--ink)",
+                      border: "1px solid var(--line)",
+                      padding: "32px 16px",
+                      textAlign: "center",
                     }}
                   >
-                    {["Payout ID", "Booking", "Release date", "Gross", "Your payout", "Status"].map((h) => (
-                      <span key={h} style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)" }}>
-                        {h}
-                      </span>
-                    ))}
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--slate)" }}>
+                      No released payouts yet
+                    </span>
                   </div>
-
-                  {PAYOUTS.map((p, i) => (
+                ) : (
+                  <div style={{ border: "1px solid var(--line)" }}>
+                    {/* Table header */}
                     <div
-                      key={p.id}
-                      className="row-hover"
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "80px 90px 1fr 120px 120px 100px",
-                        padding: "14px 16px",
-                        borderBottom: i < PAYOUTS.length - 1 ? "1px solid var(--line)" : "none",
-                        alignItems: "center",
+                        gridTemplateColumns: "1fr 90px 1fr 120px 120px 100px",
+                        padding: "10px 16px",
+                        borderBottom: "1px solid var(--ink)",
+                        background: "var(--ink)",
                       }}
                     >
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{p.id}</span>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>{p.booking}</span>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>{p.date}</span>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--slate)" }}>{formatIDR(p.gross)}</span>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: p.status === "Released" ? "var(--ok)" : "var(--active)" }}>
-                        {formatIDR(p.amount)}
-                      </span>
-                      <StatusTag status={p.status} />
+                      {["Vehicle", "Booking", "Release date", "Gross", "Your payout", "Status"].map((h) => (
+                        <span
+                          key={h}
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 10,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            color: "rgba(255,255,255,0.7)",
+                          }}
+                        >
+                          {h}
+                        </span>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                {/* Escrow explanation */}
+                    {earnings.payouts.map((p, i) => (
+                      <div
+                        key={p.bookingId}
+                        className="row-hover"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 90px 1fr 120px 120px 100px",
+                          padding: "14px 16px",
+                          borderBottom: i < earnings.payouts.length - 1 ? "1px solid var(--line)" : "none",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span style={{ fontSize: 13, color: "var(--slate)" }}>
+                          {p.make} {p.model}
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              color: "var(--accent)",
+                              marginLeft: 6,
+                              letterSpacing: "0.06em",
+                            }}
+                          >
+                            {p.listingCode}
+                          </span>
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color: "var(--accent)",
+                          }}
+                        >
+                          {p.bookingId}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color: "var(--slate)",
+                          }}
+                        >
+                          {formatDate(p.releasedAt)}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 12,
+                            color: "var(--slate)",
+                          }}
+                        >
+                          {formatIDR(p.amount)}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: "var(--ok)",
+                          }}
+                        >
+                          {formatIDR(p.payout)}
+                        </span>
+                        <StatusTag status="Released" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Escrow info */}
                 <div
                   style={{
                     marginTop: 20,
@@ -173,9 +252,15 @@ export default function EarningsPage() {
                     alignItems: "flex-start",
                   }}
                 >
-                  <Icon icon="ph:info" width={14} style={{ color: "var(--slate)", flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+                  <Icon
+                    icon="ph:info"
+                    width={14}
+                    style={{ color: "var(--slate)", flexShrink: 0, marginTop: 1 }}
+                    aria-hidden="true"
+                  />
                   <p style={{ fontSize: 13, color: "var(--slate)", lineHeight: 1.6 }}>
-                    Payouts are released after safe return of the vehicle. Platform fee is 5% of the booking total. Held funds are released to your registered bank account within 1 business day.
+                    Payouts are released after safe return of the vehicle. Platform fee is 5% of the booking total.
+                    Held funds are released to your registered bank account within 1 business day.
                   </p>
                 </div>
               </FadeIn>
