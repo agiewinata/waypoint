@@ -83,43 +83,55 @@ export default async function DashboardPage() {
         >
           {/* List my car card */}
           {renter ? (
-            <Link
-              href="/dashboard/owner"
-              className="card-hover"
-              style={{
-                padding: "24px 20px",
-                flexDirection: "column",
-                alignItems: "flex-start",
-                gap: 10,
-              }}
-            >
-              <Icon icon="ph:car" width={24} style={{ color: "var(--ink)" }} aria-hidden="true" />
-              <div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: "var(--ink)",
-                    marginBottom: 4,
-                    display: "flex",
-                    alignItems: "center",
-                  }}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <Link
+                href="/dashboard/owner"
+                className="card-hover"
+                style={{
+                  flex: 1,
+                  padding: "24px 20px",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  gap: 10,
+                }}
+              >
+                <Icon icon="ph:car" width={24} style={{ color: "var(--ink)" }} aria-hidden="true" />
+                <div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: 15,
+                      fontWeight: 700,
+                      color: "var(--ink)",
+                      marginBottom: 4,
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    List my car
+                    <StatusTag status={renter.verificationStatus} />
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
+                    Manage listings, earnings, and requests.
+                  </div>
+                </div>
+                <Icon
+                  icon="ph:arrow-right"
+                  width={14}
+                  style={{ color: "var(--slate)", marginTop: "auto" }}
+                  aria-hidden="true"
+                />
+              </Link>
+              {renter.verificationStatus !== "Verified" && (
+                <Link
+                  href="/dashboard/owner/verify"
+                  className="kicker"
+                  style={{ color: "var(--accent)", textDecoration: "none", padding: "0 4px" }}
                 >
-                  List my car
-                  <StatusTag status={renter.verificationStatus} />
-                </div>
-                <div style={{ fontSize: 12, color: "var(--slate)", lineHeight: 1.5 }}>
-                  Manage listings, earnings, and requests.
-                </div>
-              </div>
-              <Icon
-                icon="ph:arrow-right"
-                width={14}
-                style={{ color: "var(--slate)", marginTop: "auto" }}
-                aria-hidden="true"
-              />
-            </Link>
+                  Verify identity →
+                </Link>
+              )}
+            </div>
           ) : (
             <Link
               href="/dashboard/owner/new"

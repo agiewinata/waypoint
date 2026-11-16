@@ -1,7 +1,7 @@
 import { SiteHeader } from "@/components/ui/SiteHeader";
 import { SideNav } from "@/components/ui/SideNav";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
-import { VerifyUploadForm } from "@/components/customer/VerifyUploadForm";
+import { IdentityUploadForm } from "@/components/documents/IdentityUploadForm";
 import { requireCustomerPage } from "@/server/authz";
 import { listCustomerDocuments } from "@/server/documents";
 import { initials } from "@/lib/format";
@@ -80,10 +80,22 @@ export default async function VerificationPage() {
                 </p>
               </div>
 
-              <VerifyUploadForm
-                renteeID={actor.rentee.renteeID}
-                ktpDoc={ktpDoc}
-                simDoc={simDoc}
+              <IdentityUploadForm
+                subject="customer"
+                docs={[
+                  {
+                    type: "KTP",
+                    label: "National ID (KTP)",
+                    hint: "Front side of your national identity card",
+                    existing: ktpDoc,
+                  },
+                  {
+                    type: "SIM",
+                    label: "Driver's licence (SIM)",
+                    hint: "Front side of your driver's licence (SIM A or SIM C)",
+                    existing: simDoc,
+                  },
+                ]}
               />
             </div>
           </div>
