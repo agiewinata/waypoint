@@ -117,6 +117,7 @@ enum DocumentType {
   Insurance
   KTP
   SIM
+  BPKB
 }
 
 enum VerificationStatus {

@@ -302,6 +302,71 @@ export async function verifyCustomer(renteeID: string): Promise<void> {
   });
 }
 
+/** Marks a Renter (Owner) as Verified and replaces their KTP, SIM and BPKB documents. */
+export async function verifyOwner(renterID: string): Promise<void> {
+  const dummyFile = new Uint8Array([0]);
+  const dummyIv = "00000000000000000000000000000000";
+  const dummyTag = "00000000000000000000000000000000";
+
+  await db.$transaction(async (tx) => {
+    await tx.renter.update({
+      where: { renterID },
+      data: { verificationStatus: "Verified" },
+    });
+
+    await tx.document.deleteMany({
+      where: { renterID, type: { in: ["KTP", "SIM", "BPKB"] } },
+    });
+
+    await tx.document.createMany({
+      data: [
+        {
+          renterID,
+          type: "KTP",
+          verificationStatus: "Verified",
+          verifiedAt: new Date(),
+          fileData: dummyFile,
+          iv: dummyIv,
+          authTag: dummyTag,
+        },
+        {
+          renterID,
+          type: "SIM",
+          verificationStatus: "Verified",
+          verifiedAt: new Date(),
+          fileData: dummyFile,
+          iv: dummyIv,
+          authTag: dummyTag,
+        },
+        {
+          renterID,
+          type: "BPKB",
+          verificationStatus: "Verified",
+          verifiedAt: new Date(),
+          fileData: dummyFile,
+          iv: dummyIv,
+          authTag: dummyTag,
+        },
+      ],
+    });
+  });
+}
+
+/** Sets approvedByAdminID on a booking to the seeded admin's adminID. */
+export async function approveBooking(bookingID: string): Promise<void> {
+  const adminEmail = process.env.ADMIN_EMAIL ?? "admin@waypoint.local";
+  const admin = await db.admin.findFirst({
+    where: { user: { email: adminEmail } },
+    select: { adminID: true },
+  });
+  if (!admin) throw new Error(`approveBooking: no Admin found for ${adminEmail}`);
+
+  await db.booking.update({
+    where: { bookingID },
+    data: { approvedByAdminID: admin.adminID },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // cleanup() — delete test users (and all related data) by user ID
 // ---------------------------------------------------------------------------

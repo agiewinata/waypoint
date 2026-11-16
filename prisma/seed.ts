@@ -211,6 +211,36 @@ async function main(): Promise<void> {
   });
   if (!adminProfile) throw new Error("Admin profile not found after ensureAdmin");
 
+  // 4b. Profiles (phone/address reused from the Renter/Rentee rows)
+  await db.profile.create({
+    data: {
+      userID: ownerUser.id,
+      phone: renter1.phone,
+      address: renter1.address,
+    },
+  });
+  await db.profile.create({
+    data: {
+      userID: customerUser.id,
+      phone: rentee1.phone,
+      address: rentee1.address,
+    },
+  });
+  await db.profile.create({
+    data: {
+      userID: bothUser.id,
+      phone: renter2.phone,
+      address: renter2.address,
+    },
+  });
+  await db.profile.create({
+    data: {
+      userID: adminUser.id,
+      phone: "+6281234567890",
+      address: "Jl. Waypoint No. 1",
+    },
+  });
+
   // 6. Vehicles — ≥6 Approved across ≥4 cities, 1 Pending
   const dummy = Buffer.from("DUMMY_DOC_DATA_FOR_SEED");
 
@@ -218,7 +248,7 @@ async function main(): Promise<void> {
   async function createVehicleDoc(
     vehicleVIN: string,
     type: "STNK" | "Insurance",
-    status: "Verified" | "Pending"
+    status: "Verified" | "Pending" | "Rejected"
   ) {
     const enc = encryptFile(dummy);
     assertDocumentHasExactlyOneParent({ vehicleVIN });
@@ -380,6 +410,71 @@ async function main(): Promise<void> {
   // Keep v7 reference alive (suppress unused-var warning)
   void v7;
 
+  // v8: Draft — renter1, no documents (edit / first-submit demo)
+  await db.vehicle.create({
+    data: {
+      VIN: "JH4KA7660MC000003",
+      renterID: renter1.renterID,
+      listingCode: "WP-DRAFT1",
+      make: "Mitsubishi",
+      model: "Xpander",
+      year: 2023,
+      plateNumber: "B 1234 XYZ",
+      type: "MPV",
+      city: "Jakarta",
+      pricePerDay: 350000,
+      status: "Draft",
+    },
+  });
+
+  // v9: Rejected — renter1, Rejected STNK + Insurance (re-submit demo)
+  const v9 = await db.vehicle.create({
+    data: {
+      VIN: "WDDGF4HB1CA000004",
+      renterID: renter1.renterID,
+      listingCode: "WP-REJCT1",
+      make: "Mercedes-Benz",
+      model: "C200",
+      year: 2021,
+      plateNumber: "B 5678 XYZ",
+      type: "Sedan",
+      city: "Jakarta",
+      pricePerDay: 700000,
+      status: "Rejected",
+    },
+  });
+  await createVehicleDoc(v9.VIN, "STNK", "Rejected");
+  await createVehicleDoc(v9.VIN, "Insurance", "Rejected");
+
+  // 7a. Owner (Renter) identity documents — renterID parent
+  async function createRenterDoc(
+    renterID: string,
+    type: "KTP" | "SIM" | "BPKB",
+    status: "Verified" | "Pending"
+  ) {
+    const enc = encryptFile(dummy);
+    assertDocumentHasExactlyOneParent({ renterID });
+    await db.document.create({
+      data: {
+        renterID,
+        type,
+        verificationStatus: status,
+        verifiedAt: status === "Verified" ? new Date() : undefined,
+        fileData: new Uint8Array(enc.fileData),
+        iv: enc.iv,
+        authTag: enc.authTag,
+      },
+    });
+  }
+
+  // renter1 (Owner One) — Verified KTP, SIM and BPKB
+  await createRenterDoc(renter1.renterID, "KTP", "Verified");
+  await createRenterDoc(renter1.renterID, "SIM", "Verified");
+  await createRenterDoc(renter1.renterID, "BPKB", "Verified");
+
+  // renter2 (Both User) — Pending BPKB, shows in the admin verification queue
+  await createRenterDoc(renter2.renterID, "BPKB", "Pending");
+
   // 7. Customer (User 2 / rentee1) identity documents — KTP + SIM, both Verified
   const ktpEnc = encryptFile(dummy);
   assertDocumentHasExactlyOneParent({ renteeID: rentee1.renteeID });
@@ -450,9 +545,6 @@ async function main(): Promise<void> {
     },
   });
 
-  // Keep bConfirmed reference (suppress unused-var warning)
-  void bConfirmed;
-
   // Booking 3: Active — rentee1, v3 (Innova), today-1 to today+2
   //   locationConsentAt: now (customer consented to location tracking)
   const bActive = await db.booking.create({
@@ -464,6 +556,7 @@ async function main(): Promise<void> {
       status: "Active",
       totalPrice: 1200000, // 3 days × 400000
       locationConsentAt: new Date(),
+      approvedByAdminID: adminProfile.adminID,
     },
   });
 
@@ -476,11 +569,23 @@ async function main(): Promise<void> {
       endDate: addDays(today, -7),
       status: "Completed",
       totalPrice: 1500000, // 3 days × 500000
+      approvedByAdminID: adminProfile.adminID,
     },
   });
 
-  // Suppress unused-var for bPending (it's referenced in notifications below)
-  void bPending;
+  // Booking 5: Confirmed + approved — rentee1, v6 (Sigra), today+20 to today+23
+  //   Lets customer1 pay from the UI (no overlap: v6 has no other bookings)
+  await db.booking.create({
+    data: {
+      vehicleVIN: v6.VIN,
+      renteeID: rentee1.renteeID,
+      startDate: addDays(today, 20),
+      endDate: addDays(today, 23),
+      status: "Confirmed",
+      totalPrice: 660000, // 3 days × 220000
+      approvedByAdminID: adminProfile.adminID,
+    },
+  });
 
   // 9. Payments
   // Active booking — Held
@@ -558,7 +663,7 @@ async function main(): Promise<void> {
       title: "New booking request",
       body: "A customer has requested to rent your Toyota Avanza (Jakarta) from " +
         addDays(today, 5).toLocaleDateString("id-ID") + ".",
-      href: "/dashboard/bookings",
+      href: `/dashboard/owner/bookings/${bPending.bookingID}`,
     },
   });
   await db.notification.create({
@@ -567,7 +672,7 @@ async function main(): Promise<void> {
       type: "RENTAL_ACTIVE",
       title: "Rental is now active",
       body: "The rental of your Toyota Innova (Surabaya) has started. Location tracking is enabled.",
-      href: "/dashboard/bookings",
+      href: `/dashboard/owner/bookings/${bActive.bookingID}`,
     },
   });
 
@@ -578,7 +683,7 @@ async function main(): Promise<void> {
       type: "BOOKING_CONFIRMED",
       title: "Booking confirmed",
       body: "Your Honda CR-V booking has been confirmed. Have a great trip!",
-      href: "/dashboard/bookings",
+      href: `/trips/${bCompleted.bookingID}`,
     },
   });
   await db.notification.create({
@@ -587,7 +692,7 @@ async function main(): Promise<void> {
       type: "RENTAL_ACTIVE",
       title: "Your rental has started",
       body: "Your Toyota Innova rental is now active. Drive safely!",
-      href: "/dashboard/bookings",
+      href: `/trips/${bActive.bookingID}`,
     },
   });
 
@@ -599,7 +704,7 @@ async function main(): Promise<void> {
       title: "Booking confirmed",
       body: "Your Honda Jazz booking has been confirmed. Pickup on " +
         addDays(today, 10).toLocaleDateString("id-ID") + ".",
-      href: "/dashboard/bookings",
+      href: `/trips/${bConfirmed.bookingID}`,
     },
   });
   await db.notification.create({
@@ -608,7 +713,7 @@ async function main(): Promise<void> {
       type: "PROFILE_REVIEW",
       title: "Profile under review",
       body: "Your owner profile is being reviewed by our team. We will notify you once completed.",
-      href: "/dashboard/profile",
+      href: "/account",
     },
   });
 
@@ -619,7 +724,7 @@ async function main(): Promise<void> {
       type: "VEHICLE_SUBMISSION",
       title: "New vehicle submission",
       body: "Hyundai i20 (Bandung) has been submitted for review by Both User.",
-      href: "/admin/vehicles",
+      href: "/dashboard/admin",
     },
   });
   await db.notification.create({
@@ -628,7 +733,7 @@ async function main(): Promise<void> {
       type: "VERIFICATION_REQUEST",
       title: "New verification request",
       body: "Both User has submitted identity documents for verification.",
-      href: "/admin/verifications",
+      href: "/dashboard/admin",
     },
   });
 
