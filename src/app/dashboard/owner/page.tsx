@@ -1,60 +1,85 @@
-import { Header } from "@/components/ui/Header";
+import { requireOwnerPage } from "@/server/authz";
+import { listBookingsForOwner } from "@/server/bookings";
+import { getOwnerEarnings } from "@/server/payments";
+import { listVehiclesForOwner } from "@/server/vehicles";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { SideNav } from "@/components/ui/SideNav";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { FadeIn } from "@/components/ui/AnimatedText";
+import { formatIDR, formatDate } from "@/lib/format";
 import { Icon } from "@iconify/react";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 const NAV_ITEMS = [
-  { label: "Overview",   href: "/dashboard/owner",           icon: "ph:squares-four" },
-  { label: "My Cars",    href: "/dashboard/owner/cars",       icon: "ph:car" },
-  { label: "Requests",   href: "/dashboard/owner/bookings",   icon: "ph:clipboard-text", badge: 2 },
-  { label: "Tracking",   href: "/dashboard/owner/tracking",   icon: "ph:map-pin" },
-  { label: "Earnings",   href: "/dashboard/owner/earnings",   icon: "ph:currency-circle-dollar" },
-  { label: "Messages",   href: "/messages",                   icon: "ph:chat-dots" },
-  { label: "Account",    href: "/account",                    icon: "ph:user" },
+  { label: "Overview",  href: "/dashboard/owner",          icon: "ph:squares-four" },
+  { label: "My Cars",   href: "/dashboard/owner/cars",      icon: "ph:car" },
+  { label: "Requests",  href: "/dashboard/owner/bookings",  icon: "ph:clipboard-text" },
+  { label: "Tracking",  href: "/dashboard/owner/tracking",  icon: "ph:map-pin" },
+  { label: "Earnings",  href: "/dashboard/owner/earnings",  icon: "ph:currency-circle-dollar" },
+  { label: "Messages",  href: "/messages",                  icon: "ph:chat-dots" },
+  { label: "Account",   href: "/account",                   icon: "ph:user" },
 ];
 
-const BOOKINGS = [
-  { id: "BK-1200", vehicle: "WP-7731 Avanza", customer: "Andi P.", dates: "15–18 Nov", total: 960000,  status: "Pending"  },
-  { id: "BK-1182", vehicle: "WP-7731 Avanza", customer: "Rudi S.", dates: "10–13 Nov", total: 960000,  status: "Active"   },
-  { id: "BK-1051", vehicle: "WP-7735 HR-V",   customer: "Maya L.", dates: "20–23 Oct", total: 1350000, status: "Completed"},
-];
-
-const CARS = [
-  { code: "WP-7731", name: "2022 Toyota Avanza", status: "Approved", trips: 12, price: 320000 },
-  { code: "WP-7735", name: "2023 Honda HR-V",    status: "Approved", trips: 8,  price: 450000 },
-  { code: "WP-7740", name: "2021 Daihatsu Terios", status: "Pending", trips: 0, price: 350000 },
-];
-
-function formatIDR(n: number) {
-  return `RP ${n.toLocaleString("id-ID")}`;
+function getInitials(name: string | null | undefined, email: string): string {
+  const trimmed = (name ?? "").trim();
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return trimmed.slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 2).toUpperCase();
 }
 
-export default function OwnerDashboardPage() {
+export default async function OwnerDashboardPage() {
+  const actor = await requireOwnerPage();
+  const renterID = actor.renter.renterID;
+
+  const [{ items: pendingBookings }, earnings, { items: cars }] = await Promise.all([
+    listBookingsForOwner(renterID, "Pending"),
+    getOwnerEarnings(renterID),
+    listVehiclesForOwner(renterID),
+  ]);
+
+  const approvedCount = cars.filter((c) => c.status === "Approved").length;
+
+  const navItems = NAV_ITEMS.map((item) =>
+    item.href === "/dashboard/owner/bookings"
+      ? { ...item, badge: pendingBookings.length }
+      : item
+  );
+
+  const userInitials = getInitials(actor.user.name, actor.user.email);
+
+  const kpiTiles = [
+    { label: "Approved cars",    value: String(approvedCount),          mono: false },
+    { label: "Pending requests", value: String(pendingBookings.length),  mono: false },
+    { label: "Held escrow",      value: formatIDR(earnings.heldTotal),   mono: true  },
+    { label: "Released net",     value: formatIDR(earnings.net),         mono: true  },
+  ];
+
   return (
     <>
-      <Header userName="Dimas Raharjo" userInitials="DR" notifCount={2} />
+      <SiteHeader />
 
       <main style={{ padding: "36px 0 80px" }}>
         <div className="page-container">
           <div className="dashboard-layout">
             <div className="dashboard-sidebar">
               <SideNav
-                items={NAV_ITEMS}
-                userName="Dimas Raharjo"
+                items={navItems}
+                userName={actor.user.name ?? actor.user.email}
                 userRole="Owner"
-                userInitials="DR"
-                keyFigure={formatIDR(2736000)}
-                keyFigureLabel="Total earned"
+                userInitials={userInitials}
+                keyFigure={formatIDR(earnings.net)}
+                keyFigureLabel="Released net"
                 switchRoleHref="/dashboard/customer"
               />
             </div>
 
             <div className="dashboard-content">
-              {/* Header */}
+              {/* Page heading */}
               <div
                 style={{
                   borderBottom: "1px solid var(--ink)",
@@ -97,18 +122,12 @@ export default function OwnerDashboardPage() {
                     marginBottom: 32,
                   }}
                 >
-                  {[
-                    { label: "Active listings", value: "3",           mono: false },
-                    { label: "Pending requests", value: "2",          mono: false },
-                    { label: "Active trips",     value: "1",          mono: false },
-                    { label: "Total earned",     value: "RP 2.736.000", mono: true },
-                    { label: "Escrow held",      value: "RP 960.000",   mono: true },
-                  ].map((kpi, i) => (
+                  {kpiTiles.map((kpi, i) => (
                     <div
                       key={kpi.label}
                       style={{
                         padding: "16px 16px",
-                        borderRight: i < 4 ? "1px solid var(--line)" : "none",
+                        borderRight: i < kpiTiles.length - 1 ? "1px solid var(--line)" : "none",
                       }}
                     >
                       <div
@@ -127,7 +146,7 @@ export default function OwnerDashboardPage() {
                 </div>
               </FadeIn>
 
-              {/* Recent booking requests */}
+              {/* Pending booking requests */}
               <FadeIn delay={0.1}>
                 <div style={{ marginBottom: 36 }}>
                   <div
@@ -149,63 +168,103 @@ export default function OwnerDashboardPage() {
                     >
                       Booking requests
                     </h2>
-                    <Link href="/dashboard/owner/bookings" className="kicker" style={{ color: "var(--accent)", textDecoration: "none" }}>
+                    <Link
+                      href="/dashboard/owner/bookings"
+                      className="kicker"
+                      style={{ color: "var(--accent)", textDecoration: "none" }}
+                    >
                       View all →
                     </Link>
                   </div>
 
-                  <div style={{ border: "1px solid var(--line)" }}>
-                    {/* Header */}
+                  {pendingBookings.length === 0 ? (
                     <div
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr 1fr 100px 100px",
-                        padding: "10px 16px",
-                        borderBottom: "1px solid var(--ink)",
-                        background: "var(--ink)",
+                        border: "1px solid var(--line)",
+                        padding: "32px 16px",
+                        textAlign: "center",
                       }}
                     >
-                      {["ID", "Vehicle", "Customer", "Total", "Status"].map((h) => (
-                        <span
-                          key={h}
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 10,
-                            letterSpacing: "0.1em",
-                            textTransform: "uppercase",
-                            color: "rgba(255,255,255,0.7)",
-                          }}
-                        >
-                          {h}
-                        </span>
-                      ))}
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--slate)" }}>
+                        No pending requests
+                      </span>
                     </div>
-                    {BOOKINGS.map((b, i) => (
-                      <Link
-                        key={b.id}
-                        href={`/dashboard/owner/bookings/${b.id}`}
-                        className="row-hover"
+                  ) : (
+                    <div style={{ border: "1px solid var(--line)" }}>
+                      {/* Table header */}
+                      <div
                         style={{
                           display: "grid",
                           gridTemplateColumns: "1fr 1fr 1fr 100px 100px",
-                          padding: "14px 16px",
-                          borderBottom: i < BOOKINGS.length - 1 ? "1px solid var(--line)" : "none",
-                          textDecoration: "none",
-                          alignItems: "center",
+                          padding: "10px 16px",
+                          borderBottom: "1px solid var(--ink)",
+                          background: "var(--ink)",
                         }}
                       >
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)", letterSpacing: "0.06em" }}>{b.id}</span>
-                        <span style={{ fontSize: 13, color: "var(--slate)" }}>{b.vehicle}</span>
-                        <span style={{ fontSize: 13, color: "var(--ink)" }}>{b.customer}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: "var(--ink)" }}>{formatIDR(b.total)}</span>
-                        <StatusTag status={b.status} />
-                      </Link>
-                    ))}
-                  </div>
+                        {["ID", "Vehicle", "Dates", "Total", "Status"].map((h) => (
+                          <span
+                            key={h}
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              letterSpacing: "0.1em",
+                              textTransform: "uppercase",
+                              color: "rgba(255,255,255,0.7)",
+                            }}
+                          >
+                            {h}
+                          </span>
+                        ))}
+                      </div>
+                      {pendingBookings.map((b, i) => (
+                        <Link
+                          key={b.id}
+                          href={`/dashboard/owner/bookings/${b.id}`}
+                          className="row-hover"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr 1fr 100px 100px",
+                            padding: "14px 16px",
+                            borderBottom: i < pendingBookings.length - 1 ? "1px solid var(--line)" : "none",
+                            textDecoration: "none",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 12,
+                              color: "var(--accent)",
+                              letterSpacing: "0.06em",
+                            }}
+                          >
+                            {b.id}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--slate)" }}>
+                            {b.make} {b.model}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--slate)" }}>
+                            {formatDate(b.startDate)} – {formatDate(b.endDate)}
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: "var(--ink)",
+                            }}
+                          >
+                            {formatIDR(b.totalPrice)}
+                          </span>
+                          <StatusTag status={b.status} />
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </FadeIn>
 
-              {/* My cars */}
+              {/* My listings */}
               <FadeIn delay={0.15}>
                 <div>
                   <div
@@ -227,73 +286,134 @@ export default function OwnerDashboardPage() {
                     >
                       My listings
                     </h2>
-                    <Link href="/dashboard/owner/cars" className="kicker" style={{ color: "var(--accent)", textDecoration: "none" }}>
+                    <Link
+                      href="/dashboard/owner/cars"
+                      className="kicker"
+                      style={{ color: "var(--accent)", textDecoration: "none" }}
+                    >
                       Manage →
                     </Link>
                   </div>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(min(200px,100%), 1fr))",
-                      gap: 1,
-                      background: "var(--line)",
-                      border: "1px solid var(--line)",
-                    }}
-                  >
-                    {CARS.map((car) => (
-                      <Link
-                        key={car.code}
-                        href={`/dashboard/owner/cars`}
-                        className="row-hover"
-                        style={{
-                          background: "var(--surface)",
-                          padding: "16px",
-                          textDecoration: "none",
-                          display: "block",
-                        }}
-                      >
-                        {/* Mini photo */}
-                        <div
-                          className="photo-placeholder"
-                          style={{ height: 90, marginBottom: 12, border: "1px solid var(--line)" }}
-                        >
-                          <Icon icon="ph:car" width={28} style={{ color: "var(--slate)", opacity: 0.4 }} aria-hidden="true" />
-                        </div>
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--accent)", marginBottom: 4, letterSpacing: "0.08em" }}>
-                          {car.code}
-                        </div>
-                        <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>
-                          {car.name}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <StatusTag status={car.status} />
-                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--slate)" }}>
-                            {car.trips} trips
-                          </span>
-                        </div>
-                      </Link>
-                    ))}
-                    {/* Add car tile */}
-                    <Link
-                      href="/dashboard/owner/list"
+                  {cars.length === 0 ? (
+                    <div
                       style={{
-                        background: "var(--hover)",
-                        padding: "16px",
-                        textDecoration: "none",
+                        border: "2px dashed var(--line)",
+                        padding: "40px 16px",
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "center",
-                        justifyContent: "center",
-                        gap: 8,
-                        minHeight: 160,
-                        border: "2px dashed var(--line)",
+                        gap: 12,
                       }}
                     >
-                      <Icon icon="ph:plus-circle" width={28} style={{ color: "var(--slate)" }} aria-hidden="true" />
-                      <span className="kicker" style={{ textAlign: "center" }}>List another car</span>
-                    </Link>
-                  </div>
+                      <Icon icon="ph:car" width={28} style={{ color: "var(--slate)", opacity: 0.5 }} aria-hidden="true" />
+                      <span className="kicker">No cars listed yet</span>
+                      <Link href="/dashboard/owner/list" className="btn btn-primary" style={{ fontSize: 11 }}>
+                        <Icon icon="ph:plus" width={14} aria-hidden="true" />
+                        List your first car
+                      </Link>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fill, minmax(min(200px,100%), 1fr))",
+                        gap: 1,
+                        background: "var(--line)",
+                        border: "1px solid var(--line)",
+                      }}
+                    >
+                      {cars.map((car) => (
+                        <Link
+                          key={car.listingCode}
+                          href="/dashboard/owner/cars"
+                          className="row-hover"
+                          style={{
+                            background: "var(--surface)",
+                            padding: "16px",
+                            textDecoration: "none",
+                            display: "block",
+                          }}
+                        >
+                          <div
+                            className="photo-placeholder"
+                            style={{ height: 90, marginBottom: 12, border: "1px solid var(--line)" }}
+                          >
+                            <Icon
+                              icon="ph:car"
+                              width={28}
+                              style={{ color: "var(--slate)", opacity: 0.4 }}
+                              aria-hidden="true"
+                            />
+                          </div>
+                          <div
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              color: "var(--accent)",
+                              marginBottom: 4,
+                              letterSpacing: "0.08em",
+                            }}
+                          >
+                            {car.listingCode}
+                          </div>
+                          <div
+                            style={{
+                              fontFamily: "var(--font-display)",
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: "var(--ink)",
+                              marginBottom: 4,
+                            }}
+                          >
+                            {car.year} {car.make} {car.model}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
+                            <StatusTag status={car.status} />
+                            <span
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 11,
+                                color: "var(--slate)",
+                              }}
+                            >
+                              {formatIDR(car.pricePerDay)}/day
+                            </span>
+                          </div>
+                        </Link>
+                      ))}
+                      {/* Add car tile */}
+                      <Link
+                        href="/dashboard/owner/list"
+                        style={{
+                          background: "var(--hover)",
+                          padding: "16px",
+                          textDecoration: "none",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          minHeight: 160,
+                          border: "2px dashed var(--line)",
+                        }}
+                      >
+                        <Icon
+                          icon="ph:plus-circle"
+                          width={28}
+                          style={{ color: "var(--slate)" }}
+                          aria-hidden="true"
+                        />
+                        <span className="kicker" style={{ textAlign: "center" }}>List another car</span>
+                      </Link>
+                    </div>
+                  )}
                 </div>
               </FadeIn>
             </div>

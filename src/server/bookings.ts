@@ -31,6 +31,7 @@ export interface BookingDetail extends BookingSummary {
   vehicleYear: number;
   customerName: string;
   customerVerificationStatus: string;
+  paymentId: string | null;
   paymentStatus: string | null;
   paymentAmount: number | null;
   hasOpenDispute: boolean;
@@ -245,6 +246,7 @@ export async function getBookingDetail(
     vehicleYear: booking.vehicle.year,
     customerName: booking.rentee.name,
     customerVerificationStatus: booking.rentee.verificationStatus,
+    paymentId: payment?.paymentID ?? null,
     paymentStatus: payment?.status ?? null,
     paymentAmount: payment ? toRupiah(payment.amount) : null,
     hasOpenDispute: booking.disputes.length > 0,
