@@ -10,25 +10,8 @@ import { TrackingMap } from "@/components/owner/TrackingMap";
 import { AutoRefresh } from "@/components/ui/AutoRefresh";
 import { requireOwnerPage } from "@/server/authz";
 import { getTrackingForOwner } from "@/server/location";
-import { formatDate } from "@/lib/format";
-
-const NAV_ITEMS = [
-  { label: "Overview",  href: "/dashboard/owner",          icon: "ph:squares-four" },
-  { label: "My Cars",   href: "/dashboard/owner/cars",      icon: "ph:car" },
-  { label: "Requests",  href: "/dashboard/owner/bookings",  icon: "ph:clipboard-text" },
-  { label: "Tracking",  href: "/dashboard/owner/tracking",  icon: "ph:map-pin" },
-  { label: "Earnings",  href: "/dashboard/owner/earnings",  icon: "ph:currency-circle-dollar" },
-  { label: "Account",   href: "/account",                   icon: "ph:user" },
-];
-
-/** Derives two-letter initials from a display name. */
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
+import { formatDate, initials } from "@/lib/format";
+import { OWNER_NAV_ITEMS } from "@/components/ui/nav";
 
 export default async function LiveTrackingPage({
   params,
@@ -41,7 +24,7 @@ export default async function LiveTrackingPage({
   if (!tracking) notFound();
 
   const userName = actor.user.name ?? actor.user.email;
-  const userInitials = getInitials(userName);
+  const userInitials = initials(userName);
   const latest = tracking.points[0] ?? null;
 
   return (
@@ -55,7 +38,7 @@ export default async function LiveTrackingPage({
           <div className="dashboard-layout">
             <div className="dashboard-sidebar">
               <SideNav
-                items={NAV_ITEMS}
+                items={OWNER_NAV_ITEMS}
                 userName={userName}
                 userRole="Owner"
                 userInitials={userInitials}

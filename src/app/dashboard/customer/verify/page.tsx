@@ -4,25 +4,10 @@ import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { VerifyUploadForm } from "@/components/customer/VerifyUploadForm";
 import { requireCustomerPage } from "@/server/authz";
 import { listCustomerDocuments } from "@/server/documents";
+import { initials } from "@/lib/format";
+import { CUSTOMER_NAV_ITEMS } from "@/components/ui/nav";
 
 export const dynamic = "force-dynamic";
-
-/** Derives two-letter initials from a display name. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
-
-const NAV_ITEMS = [
-  { label: "My Trips",      href: "/dashboard/customer",        icon: "ph:car" },
-  { label: "Verification",  href: "/dashboard/customer/verify", icon: "ph:identification-card" },
-  { label: "Messages",      href: "/messages",                  icon: "ph:chat-dots" },
-  { label: "Notifications", href: "/notifications",             icon: "ph:bell" },
-  { label: "Account",       href: "/account",                   icon: "ph:user" },
-];
 
 export default async function VerificationPage() {
   const actor = await requireCustomerPage();
@@ -44,7 +29,7 @@ export default async function VerificationPage() {
           <div className="dashboard-layout">
             <div className="dashboard-sidebar">
               <SideNav
-                items={NAV_ITEMS}
+                items={CUSTOMER_NAV_ITEMS}
                 userName={userName}
                 userRole="Customer"
                 userInitials={userInitials}

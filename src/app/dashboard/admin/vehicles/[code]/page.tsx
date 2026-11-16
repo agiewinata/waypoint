@@ -6,28 +6,11 @@ import { StatusTag } from "@/components/ui/StatusTag";
 import { Icon } from "@iconify/react";
 import { requireAdminPage } from "@/server/authz";
 import { getVehicleForReview } from "@/server/admin";
-import { formatDate, formatIDR } from "@/lib/format";
+import { formatDate, formatIDR, initials } from "@/lib/format";
+import { ADMIN_NAV_ITEMS } from "@/components/ui/nav";
 import { VehicleReviewActions } from "@/components/admin/VehicleReviewActions";
 
 export const dynamic = "force-dynamic";
-
-const NAV_ITEMS = [
-  { label: "Overview",      href: "/dashboard/admin", icon: "ph:squares-four" },
-  { label: "Verifications", href: "#verifications",   icon: "ph:identification-card" },
-  { label: "Vehicles",      href: "#vehicles",        icon: "ph:car" },
-  { label: "Disputes",      href: "#disputes",        icon: "ph:scales" },
-];
-
-/** Derives two-letter initials from a display name or email address. */
-function getInitials(name: string, email: string): string {
-  const trimmed = name.trim();
-  if (trimmed) {
-    const parts = trimmed.split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return trimmed.slice(0, 2).toUpperCase();
-  }
-  return email.slice(0, 2).toUpperCase();
-}
 
 export default async function AdminVehicleReviewPage({
   params,
@@ -40,7 +23,7 @@ export default async function AdminVehicleReviewPage({
 
   if (!vehicle) notFound();
 
-  const userInitials = getInitials(actor.user.name, actor.user.email);
+  const userInitials = initials(actor.user.name.trim() || actor.user.email);
 
   const specs = [
     { label: "Code",       value: vehicle.listingCode },
@@ -62,7 +45,7 @@ export default async function AdminVehicleReviewPage({
           <div className="dashboard-layout">
             <div className="dashboard-sidebar">
               <SideNav
-                items={NAV_ITEMS}
+                items={ADMIN_NAV_ITEMS}
                 userName={actor.user.name || actor.user.email}
                 userRole="Administrator"
                 userInitials={userInitials}

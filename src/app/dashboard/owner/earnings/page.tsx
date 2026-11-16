@@ -5,36 +5,17 @@ import { SideNav } from "@/components/ui/SideNav";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { FadeIn } from "@/components/ui/AnimatedText";
-import { formatIDR, formatDate } from "@/lib/format";
+import { formatIDR, formatDate, initials } from "@/lib/format";
+import { OWNER_NAV_ITEMS } from "@/components/ui/nav";
 import { Icon } from "@iconify/react";
 
 export const dynamic = "force-dynamic";
-
-const NAV_ITEMS = [
-  { label: "Overview",  href: "/dashboard/owner",          icon: "ph:squares-four" },
-  { label: "My Cars",   href: "/dashboard/owner/cars",      icon: "ph:car" },
-  { label: "Requests",  href: "/dashboard/owner/bookings",  icon: "ph:clipboard-text" },
-  { label: "Tracking",  href: "/dashboard/owner/tracking",  icon: "ph:map-pin" },
-  { label: "Earnings",  href: "/dashboard/owner/earnings",  icon: "ph:currency-circle-dollar" },
-  { label: "Messages",  href: "/messages",                  icon: "ph:chat-dots" },
-  { label: "Account",   href: "/account",                   icon: "ph:user" },
-];
-
-function getInitials(name: string | null | undefined, email: string): string {
-  const trimmed = (name ?? "").trim();
-  if (trimmed) {
-    const parts = trimmed.split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return trimmed.slice(0, 2).toUpperCase();
-  }
-  return email.slice(0, 2).toUpperCase();
-}
 
 export default async function EarningsPage() {
   const actor = await requireOwnerPage();
   const earnings = await getOwnerEarnings(actor.renter.renterID);
 
-  const userInitials = getInitials(actor.user.name, actor.user.email);
+  const userInitials = initials(actor.user.name?.trim() || actor.user.email);
 
   const kpiTiles = [
     { label: "Held in escrow",  value: formatIDR(earnings.heldTotal),    color: "var(--active)" },
@@ -52,7 +33,7 @@ export default async function EarningsPage() {
           <div className="dashboard-layout">
             <div className="dashboard-sidebar">
               <SideNav
-                items={NAV_ITEMS}
+                items={OWNER_NAV_ITEMS}
                 userName={actor.user.name ?? actor.user.email}
                 userRole="Owner"
                 userInitials={userInitials}

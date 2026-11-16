@@ -6,18 +6,10 @@ import { Icon } from "@iconify/react";
 import Link from "next/link";
 import { requireCustomerPage } from "@/server/authz";
 import { listBookingsForCustomer } from "@/server/bookings";
-import { formatIDR, formatDate } from "@/lib/format";
+import { formatIDR, formatDate, initials } from "@/lib/format";
+import { CUSTOMER_NAV_ITEMS } from "@/components/ui/nav";
 
 export const dynamic = "force-dynamic";
-
-/** Derives two-letter initials from a display name. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
 
 export default async function CustomerDashboardPage() {
   const actor = await requireCustomerPage();
@@ -31,13 +23,9 @@ export default async function CustomerDashboardPage() {
   const activeCount = items.filter((b) => b.status === "Active").length;
   const totalSpent = items.reduce((sum, b) => sum + b.totalPrice, 0);
 
-  const NAV_ITEMS = [
-    { label: "My Trips",      href: "/dashboard/customer",        icon: "ph:car" },
-    { label: "Verification",  href: "/dashboard/customer/verify", icon: "ph:identification-card", badge: isVerified ? 0 : 1 },
-    { label: "Messages",      href: "/messages",                  icon: "ph:chat-dots" },
-    { label: "Notifications", href: "/notifications",             icon: "ph:bell" },
-    { label: "Account",       href: "/account",                   icon: "ph:user" },
-  ];
+  const navItems = CUSTOMER_NAV_ITEMS.map((item) =>
+    item.href === "/dashboard/customer/verify" ? { ...item, badge: isVerified ? 0 : 1 } : item
+  );
 
   return (
     <>
@@ -49,7 +37,7 @@ export default async function CustomerDashboardPage() {
             {/* Sidebar */}
             <div className="dashboard-sidebar">
               <SideNav
-                items={NAV_ITEMS}
+                items={navItems}
                 userName={userName}
                 userRole="Customer"
                 userInitials={userInitials}
