@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 import { encryptFile, decryptFile } from "@/lib/crypto/file-encryption";
-import { sniffMime } from "@/lib/validation/document";
+import { sniffMime, resolveDocSubject } from "@/lib/validation/document";
 import { HttpError } from "@/server/http";
+import { recomputeRenteeStatus, recomputeRenterStatus } from "@/server/verification";
 import type { Actor } from "@/server/authz";
 import type { DocumentType, VerificationStatus } from "@/generated/prisma/client";
 import type { DocumentUploadFields } from "@/lib/validation/document";
@@ -42,11 +43,11 @@ function assertDocumentParent(
 // uploadDocument — encrypt and persist a document file.
 //
 // Steps:
-//   1. Determine parent based on doc type and actor role
-//   2. Verify no Pending/Verified doc of the same type already exists
+//   1. Resolve the subject (vehicle / owner / customer) and its parent
+//   2. Verify no Pending/Verified doc of the same type exists for that parent
 //   3. For STNK/Insurance: vehicle must be in Draft or Rejected status
-//   4. Encrypt the file and persist
-//   5. For KTP/SIM: bump rentee verificationStatus to Pending if Unverified/Rejected
+//   4. In one transaction: insert the document and recompute the parent's
+//      verificationStatus (vehicle documents have no status to recompute)
 // ---------------------------------------------------------------------------
 
 export async function uploadDocument(
@@ -54,11 +55,13 @@ export async function uploadDocument(
   fields: DocumentUploadFields,
   bytes: Buffer
 ): Promise<{ id: string; type: DocumentType; status: "Pending" }> {
+  const subject = resolveDocSubject(fields);
+
   let vehicleVIN: string | null = null;
-  const renterID: string | null = null;
+  let renterID: string | null = null;
   let renteeID: string | null = null;
 
-  if (fields.type === "STNK" || fields.type === "Insurance") {
+  if (subject === "vehicle") {
     // Caller must have an Owner profile (enforced in the route, but guard again)
     if (!actor.renter) {
       throw new HttpError(403, "Owner profile required");
@@ -86,8 +89,13 @@ export async function uploadDocument(
     }
 
     vehicleVIN = vehicle.VIN;
+  } else if (subject === "owner") {
+    if (!actor.renter) {
+      throw new HttpError(403, "Owner profile required");
+    }
+    renterID = actor.renter.renterID;
   } else {
-    // KTP or SIM — caller must have a Customer profile
+    // KTP or SIM as customer — caller must have a Customer profile
     if (!actor.rentee) {
       throw new HttpError(403, "Customer profile required");
     }
@@ -96,12 +104,13 @@ export async function uploadDocument(
 
   assertDocumentParent(vehicleVIN, renterID, renteeID);
 
-  // Reject upload if a Pending or Verified doc of the same type already exists
+  // Reject upload if a Pending or Verified doc of the same type already exists for this parent
   const existing = await db.document.findFirst({
     where: {
       type: fields.type,
       verificationStatus: { in: ["Pending", "Verified"] },
       ...(vehicleVIN !== null ? { vehicleVIN } : {}),
+      ...(renterID !== null ? { renterID } : {}),
       ...(renteeID !== null ? { renteeID } : {}),
     },
     select: { documentID: true },
@@ -116,37 +125,29 @@ export async function uploadDocument(
   // Encrypt file content — iv and authTag come back as hex strings
   const enc = encryptFile(bytes);
 
-  const doc = await db.document.create({
-    data: {
-      vehicleVIN,
-      renterID,
-      renteeID,
-      type: fields.type,
-      verificationStatus: "Pending",
-      fileData: new Uint8Array(enc.fileData),
-      iv: enc.iv,
-      authTag: enc.authTag,
-    },
-    select: { documentID: true, type: true },
-  });
-
-  // After a KTP or SIM upload, move the rentee to Pending if still Unverified/Rejected
-  if ((fields.type === "KTP" || fields.type === "SIM") && actor.rentee) {
-    const rentee = await db.rentee.findUnique({
-      where: { renteeID: actor.rentee.renteeID },
-      select: { verificationStatus: true },
+  const doc = await db.$transaction(async (tx) => {
+    const created = await tx.document.create({
+      data: {
+        vehicleVIN,
+        renterID,
+        renteeID,
+        type: fields.type,
+        verificationStatus: "Pending",
+        fileData: new Uint8Array(enc.fileData),
+        iv: enc.iv,
+        authTag: enc.authTag,
+      },
+      select: { documentID: true, type: true },
     });
-    if (
-      rentee &&
-      (rentee.verificationStatus === "Unverified" ||
-        rentee.verificationStatus === "Rejected")
-    ) {
-      await db.rentee.update({
-        where: { renteeID: actor.rentee.renteeID },
-        data: { verificationStatus: "Pending" },
-      });
+
+    if (renteeID !== null) {
+      await recomputeRenteeStatus(tx, renteeID);
+    } else if (renterID !== null) {
+      await recomputeRenterStatus(tx, renterID);
     }
-  }
+
+    return created;
+  });
 
   return { id: doc.documentID, type: doc.type, status: "Pending" };
 }
@@ -235,6 +236,32 @@ export async function listCustomerDocuments(
 ): Promise<DocumentStatusDTO[]> {
   const docs = await db.document.findMany({
     where: { renteeID },
+    select: {
+      documentID: true,
+      type: true,
+      verificationStatus: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return docs.map((d) => ({
+    id: d.documentID,
+    type: d.type,
+    status: d.verificationStatus,
+    createdAt: d.createdAt.toISOString(),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// listOwnerDocuments — status-only list for a renter (Owner), no file bytes.
+// ---------------------------------------------------------------------------
+
+export async function listOwnerDocuments(
+  renterID: string
+): Promise<DocumentStatusDTO[]> {
+  const docs = await db.document.findMany({
+    where: { renterID },
     select: {
       documentID: true,
       type: true,

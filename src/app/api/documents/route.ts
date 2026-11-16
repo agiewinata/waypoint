@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { route, HttpError } from "@/server/http";
 import { requireUser } from "@/server/authz";
-import { MAX_UPLOAD_BYTES, sniffMime, DocumentUploadFields } from "@/lib/validation/document";
+import {
+  MAX_UPLOAD_BYTES,
+  sniffMime,
+  DocumentUploadFields,
+  resolveDocSubject,
+} from "@/lib/validation/document";
 import { uploadDocument } from "@/server/documents";
 
 // 6 MiB — bail out before reading the body if the client declares more than this
@@ -25,6 +30,7 @@ export const POST = route(async (req) => {
   // Extract string fields (formData.get returns FormDataEntryValue | null)
   const typeValue = formData.get("type");
   const listingCodeValue = formData.get("listingCode");
+  const asValue = formData.get("as");
 
   const rawFields = {
     type: typeof typeValue === "string" ? typeValue : null,
@@ -32,6 +38,7 @@ export const POST = route(async (req) => {
       typeof listingCodeValue === "string" && listingCodeValue !== ""
         ? listingCodeValue
         : undefined,
+    as: typeof asValue === "string" && asValue !== "" ? asValue : undefined,
   };
 
   // Parse and cross-field validate using the Zod schema; throws ZodError → 400 via route()
@@ -53,15 +60,14 @@ export const POST = route(async (req) => {
     throw new HttpError(400, "Unsupported file type — must be JPEG, PNG, or PDF");
   }
 
-  // Enforce role based on document type (STNK/Insurance → owner; KTP/SIM → customer)
-  if (fields.type === "STNK" || fields.type === "Insurance") {
-    if (!actor.renter) {
-      throw new HttpError(403, "Owner profile required");
-    }
-  } else {
+  // Enforce role based on the resolved subject (vehicle/owner → Renter; customer → Rentee)
+  const subject = resolveDocSubject(fields);
+  if (subject === "customer") {
     if (!actor.rentee) {
       throw new HttpError(403, "Customer profile required");
     }
+  } else if (!actor.renter) {
+    throw new HttpError(403, "Owner profile required");
   }
 
   const result = await uploadDocument(actor, fields, bytes);

@@ -73,13 +73,17 @@ export function sniffMime(
 //
 // Rules:
 //   - listingCode is REQUIRED when type is STNK or Insurance
-//   - listingCode must NOT be provided when type is KTP or SIM
+//   - listingCode must NOT be provided when type is KTP, SIM or BPKB
+//   - as is NOT valid for STNK or Insurance
+//   - as must be "owner" or omitted for BPKB
+//   - as is optional for KTP and SIM; omitted means customer (see resolveDocSubject)
 // ---------------------------------------------------------------------------
 
 export const DocumentUploadFields = z
   .object({
-    type: z.enum(["STNK", "Insurance", "KTP", "SIM"]),
+    type: z.enum(["STNK", "Insurance", "KTP", "SIM", "BPKB"]),
     listingCode: z.string().optional(),
+    as: z.enum(["owner", "customer"]).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.type === "STNK" || data.type === "Insurance") {
@@ -90,16 +94,47 @@ export const DocumentUploadFields = z
           path: ["listingCode"],
         });
       }
+      if (data.as !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "as is not valid for vehicle documents",
+          path: ["as"],
+        });
+      }
     }
-    if (data.type === "KTP" || data.type === "SIM") {
+    if (data.type === "KTP" || data.type === "SIM" || data.type === "BPKB") {
       if (data.listingCode && data.listingCode.trim() !== "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "listingCode must not be provided for KTP and SIM",
+          message: "listingCode must not be provided for KTP, SIM and BPKB",
           path: ["listingCode"],
         });
       }
     }
+    if (data.type === "BPKB" && data.as === "customer") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "BPKB can only be uploaded as owner",
+        path: ["as"],
+      });
+    }
   });
 
 export type DocumentUploadFields = z.infer<typeof DocumentUploadFields>;
+
+// ---------------------------------------------------------------------------
+// resolveDocSubject — which parent a document attaches to.
+//   STNK / Insurance → vehicle (listingCode)
+//   BPKB             → owner (Renter)
+//   KTP / SIM        → owner if as=owner, otherwise customer (Rentee)
+// ---------------------------------------------------------------------------
+
+export function resolveDocSubject(fields: {
+  type: string;
+  as?: string;
+  listingCode?: string;
+}): "vehicle" | "owner" | "customer" {
+  if (fields.type === "STNK" || fields.type === "Insurance") return "vehicle";
+  if (fields.type === "BPKB") return "owner";
+  return fields.as === "owner" ? "owner" : "customer";
+}
